@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider(color = Color.LightGray , thickness = 1.dp)
     }
 
-    @Preview
+//    @Preview
     @Composable
     fun portfolio(){
         Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.TopStart){
@@ -220,7 +220,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    //@Preview(showBackground = true)
+    @Preview(showBackground = true)
     @Composable
     fun Preview(){
         MainSurface()
