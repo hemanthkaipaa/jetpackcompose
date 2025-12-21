@@ -1,5 +1,6 @@
 package com.kaipa.jetpackcompose.ilearn
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
@@ -62,7 +64,12 @@ class MainActivity : ComponentActivity() {
             .background(color = Color.White)
         ){
             // card component
-            CardComponent()
+//            CardComponent()
+            Button(modifier = Modifier.wrapContentSize(), onClick = {
+                startActivity(Intent(this, TipActivity::class.java))
+            }) {
+                Text(text = "TipApp")
+            }
         }
     }
 
