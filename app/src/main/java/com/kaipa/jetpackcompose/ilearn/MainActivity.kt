@@ -38,10 +38,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.kaipa.jetpackcompose.ilearn.components.ButtonWrapper
+import com.kaipa.jetpackcompose.ilearn.components.ColumnWrapper
 import com.kaipa.jetpackcompose.ilearn.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -57,18 +60,13 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MainSurface(){
-
-        Surface(modifier = Modifier
-            .fillMaxWidth()
-            .fillMaxHeight()
-            .background(color = Color.White)
-        ){
-            // card component
-//            CardComponent()
-            Button(modifier = Modifier.wrapContentSize(), onClick = {
-                startActivity(Intent(this, TipActivity::class.java))
-            }) {
-                Text(text = "TipApp")
+        val context = LocalContext.current
+        ColumnWrapper(Modifier.fillMaxSize(), orientation = Arrangement.Center) {
+            ButtonWrapper(modifier = Modifier.wrapContentSize(), text = "Tip App") {
+                startActivity(Intent(context, TipActivity::class.java))
+            }
+            ButtonWrapper(modifier = Modifier.wrapContentSize(), text = "Movies App") {
+                startActivity(Intent(context, MoviesActivity::class.java))
             }
         }
     }

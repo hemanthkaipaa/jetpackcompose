@@ -1,10 +1,7 @@
 package com.kaipa.jetpackcompose.ilearn.components
 
-import android.R.attr.enabled
-import android.R.attr.onClick
-import android.R.attr.text
-import android.R.attr.value
-import androidx.annotation.Dimension.Companion.DP
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -12,31 +9,26 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonElevation
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -60,6 +52,7 @@ fun ColumnWrapper(
     padding: Dp = 0.dp,
     orientation: Arrangement.Vertical = Arrangement.Top,
     alignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    backgroundColor: Color = Color.White,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val finalModifier = modifier
@@ -70,7 +63,12 @@ fun ColumnWrapper(
             } else {
                 Modifier
             }
-        )
+        ).then(
+            if (backgroundColor != Color.White) {
+                Modifier.background(backgroundColor)
+            } else {
+                Modifier
+            })
 
     Column(
         modifier = finalModifier,
@@ -120,7 +118,8 @@ fun ButtonWrapper(
     elevation: Dp = 4.dp,
     buttonColor: Color = Color.White,
     buttonTintColor: Color = Color.Black,
-    onClick: () -> Unit
+    textColor : Color = Color.Black,
+    onClick: () -> Unit,
 ) {
 
     val finalModifier = modifier
@@ -155,7 +154,7 @@ fun ButtonWrapper(
         contentPadding = contentPaddingValue
     ) {
         text?.run {
-            Text(text = this, modifier = Modifier.fillMaxSize())
+            Text(text = this, color = textColor)
         }
         imageVector?.run {
             Icon(imageVector = this, contentDescription = "icon", tint = buttonTintColor)
@@ -174,24 +173,44 @@ fun AddSpace(padding: Dp = 0.dp, height: Dp = 10.dp) {
 }
 
 @Composable
+fun AddRowSpace(padding: Dp = 0.dp, width: Dp = 10.dp) {
+    Spacer(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .padding(padding)
+    )
+}
+
+@Composable
 fun CardWrapper(
     modifier: Modifier = Modifier,
     cardHeight: Dp = 0.dp,
     cardPadding: Dp = 16.dp,
+    cardPaddingTop: Dp = 4.dp,
+    cardPaddingBottom: Dp = 4.dp,
+    cardPaddingRight: Dp = 16.dp,
+    cardPaddingLeft: Dp = 16.dp,
     cardColor: Color = Color.White,
-    cardShape: Shape = RoundedCornerShape(4.dp),
-    cardElevation: CardElevation = CardDefaults.elevatedCardElevation(4.dp),
+    cardShapeDp: Dp = 4.dp,
+    cardShape: Shape = RoundedCornerShape(cardShapeDp),
+    cardElevationDp : Dp = 4.dp,
+    cardElevation: CardElevation = CardDefaults.elevatedCardElevation(cardElevationDp),
+    onClick: () -> Unit = {},
     cardContent: @Composable ColumnScope.() -> Unit
 ) {
     val finalModifier = modifier
         .then(
-            if (cardPadding > 16.dp) {
+            if (cardPadding != 16.dp) {
                 Modifier.padding(cardPadding)
             } else {
-                Modifier.padding(16.dp)
+                Modifier.padding(cardPaddingLeft,cardPaddingTop,cardPaddingRight,cardPaddingBottom)
             }
         )
         .fillMaxWidth()
+        .clickable{
+            onClick()
+        }
         .then(
             cardHeight.let { if (it > 0.dp) Modifier.height(it) else Modifier.wrapContentHeight() }
         )
@@ -200,7 +219,7 @@ fun CardWrapper(
         colors = CardDefaults.cardColors(containerColor = cardColor),
         shape = cardShape,
         elevation = cardElevation,
-        content = cardContent
+        content = cardContent,
     )
 }
 
