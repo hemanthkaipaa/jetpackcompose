@@ -1,10 +1,9 @@
 package com.kaipa.jetpackcompose.ilearn.screens.detail
 
-import android.R.attr.contentDescription
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -79,7 +78,7 @@ fun MainSurface(navController: NavController, movie: String?) {
             Text(text = "Posters", Modifier.padding(20.dp), textAlign = TextAlign.Start)
             LazyRow() {
                 items(movieObject.images) {
-                    CardWrapper(cardHeight = 300.dp) {
+                    CardWrapper(cardHeight = 300.dp, modifier = Modifier.fillMaxWidth()) {
                         AsyncImage(
                             modifier = Modifier.padding(4.dp).fillMaxSize(),
                             model = ImageRequest.Builder(LocalContext.current)
@@ -102,5 +101,5 @@ fun MainSurface(navController: NavController, movie: String?) {
 @Composable
 fun Preview() {
     val navController = rememberNavController()
-    MainSurface(navController, "Avengers")
+    MainSurface(navController, "1")
 }
