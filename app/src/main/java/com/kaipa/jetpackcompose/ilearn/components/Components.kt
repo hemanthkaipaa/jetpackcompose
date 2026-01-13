@@ -1,5 +1,11 @@
 package com.kaipa.jetpackcompose.ilearn.components
 
+import android.R.attr.enabled
+import android.R.attr.label
+import android.R.attr.maxLines
+import android.R.attr.singleLine
+import android.R.attr.y
+import android.util.Log.e
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +31,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldColors
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
@@ -45,6 +55,7 @@ import com.kaipa.jetpackcompose.ilearn.ui.theme.Purple40
 import com.kaipa.jetpackcompose.ilearn.ui.theme.Purple80
 import com.kaipa.jetpackcompose.ilearn.ui.theme.PurpleGrey40
 import com.kaipa.jetpackcompose.ilearn.ui.theme.PurpleGrey80
+import kotlin.math.sin
 
 @Composable
 fun ColumnWrapper(
@@ -63,12 +74,14 @@ fun ColumnWrapper(
             } else {
                 Modifier
             }
-        ).then(
+        )
+        .then(
             if (backgroundColor != Color.White) {
                 Modifier.background(backgroundColor)
             } else {
                 Modifier
-            })
+            }
+        )
 
     Column(
         modifier = finalModifier,
@@ -118,7 +131,7 @@ fun ButtonWrapper(
     elevation: Dp = 4.dp,
     buttonColor: Color = Color.White,
     buttonTintColor: Color = Color.Black,
-    textColor : Color = Color.Black,
+    textColor: Color = Color.Black,
     onClick: () -> Unit,
 ) {
 
@@ -194,7 +207,7 @@ fun CardWrapper(
     cardColor: Color = Color.White,
     cardShapeDp: Dp = 4.dp,
     cardShape: Shape = RoundedCornerShape(cardShapeDp),
-    cardElevationDp : Dp = 4.dp,
+    cardElevationDp: Dp = 4.dp,
     cardElevation: CardElevation = CardDefaults.elevatedCardElevation(cardElevationDp),
     onClick: () -> Unit = {},
     cardContent: @Composable ColumnScope.() -> Unit
@@ -204,16 +217,17 @@ fun CardWrapper(
             if (cardPadding != 16.dp) {
                 Modifier.padding(cardPadding)
             } else {
-                Modifier.padding(cardPaddingLeft,cardPaddingTop,cardPaddingRight,cardPaddingBottom)
+                Modifier.padding(
+                    cardPaddingLeft, cardPaddingTop, cardPaddingRight, cardPaddingBottom
+                )
             }
         )
         .fillMaxWidth()
-        .clickable{
+        .clickable {
             onClick()
         }
         .then(
-            cardHeight.let { if (it > 0.dp) Modifier.height(it) else Modifier.wrapContentHeight() }
-        )
+            cardHeight.let { if (it > 0.dp) Modifier.height(it) else Modifier.wrapContentHeight() })
     Card(
         finalModifier,
         colors = CardDefaults.cardColors(containerColor = cardColor),
@@ -221,6 +235,69 @@ fun CardWrapper(
         elevation = cardElevation,
         content = cardContent,
     )
+}
+
+@Composable
+fun TextFieldWrapper(
+    mutableValue: MutableState<String>,
+    modifier: Modifier = Modifier,
+    padding: Dp = 16.dp,
+    singleLine: Boolean = true,
+    maxLines: Int = 1,
+    enabled: Boolean = true,
+    label: String,
+    placeholder: String = "",
+    startIcon: ImageVector? = null,
+    endIcon: ImageVector? = null,
+    imeAction: () -> Unit = {}
+) {
+    val finalModifier = modifier.then(
+        if (padding != 16.dp) {
+            Modifier.padding(padding)
+        } else {
+            Modifier.padding(16.dp)
+        }
+    )
+
+    TextField(
+        modifier = finalModifier,
+        value = mutableValue.value,
+        onValueChange = {
+            mutableValue.value = it
+        },
+        label = {
+            Text(text = label)
+        },
+        placeholder = {
+            Text(text = placeholder)
+        },
+        colors = TextFieldDefaults.colors(
+            focusedTextColor = Purple40,
+            focusedIndicatorColor = Purple40,
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            unfocusedIndicatorColor = Purple40,
+            cursorColor = Purple40,
+        ),
+
+        singleLine = singleLine,
+        maxLines = maxLines,
+        enabled = enabled,
+        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            imeAction()
+        }),
+
+        leadingIcon = startIcon?.let {
+            { Icon(imageVector = it, contentDescription = "startIcon") }
+        },
+        trailingIcon = endIcon?.let {
+            { Icon(imageVector = it, contentDescription = "endIcon") }
+        }
+
+
+    )
+
 }
 
 @Composable
@@ -287,13 +364,12 @@ fun SliderWrapper(
     inactiveTrackColor: Color = PurpleGrey80,
     activeTickColor: Color = Purple40,
     inactiveTickColor: Color = PurpleGrey40,
-    onValueChange : (Float) ->Unit
+    onValueChange: (Float) -> Unit
 ) {
     val finalModifier = modifier
         .fillMaxWidth()
         .then(
-            padding.let { if (it > 0.dp) Modifier.padding(it) else Modifier.padding(16.dp) }
-        )
+            padding.let { if (it > 0.dp) Modifier.padding(it) else Modifier.padding(16.dp) })
     Slider(
         modifier = finalModifier,
         value = sliderState.value,

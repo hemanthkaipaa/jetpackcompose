@@ -45,7 +45,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.kaipa.jetpackcompose.ilearn.components.ButtonWrapper
 import com.kaipa.jetpackcompose.ilearn.components.ColumnWrapper
+import com.kaipa.jetpackcompose.ilearn.noteApp.NoteAppActivity
 import com.kaipa.jetpackcompose.ilearn.ui.theme.MyApplicationTheme
+import kotlin.jvm.java
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +69,9 @@ class MainActivity : ComponentActivity() {
             }
             ButtonWrapper(modifier = Modifier.wrapContentSize(), text = "Movies App") {
                 startActivity(Intent(context, MoviesActivity::class.java))
+            }
+            ButtonWrapper(modifier = Modifier.wrapContentSize(), text = "Note App") {
+                startActivity(Intent(context, NoteAppActivity::class.java))
             }
         }
     }
