@@ -216,3 +216,23 @@ suspend fun asyncAwait(scope: CoroutineScope){
  *   it will automatically switches to caller dispatcher
  *   its light weight and will not create new coroutine like launch/async
  */
+
+
+// module 3 Job Cancellation and Exception handling
+
+// Job -  every coroutine has its own lifecycle which is handled by 'Job'
+// Job has certain properties and methods
+/**
+ * Job Properties -
+ * job.isActive,
+ * job.isCancelled,
+ * job.isCompleted
+ *
+ * Job methods -
+ * job.cancel(), -> job request for cancellation
+ * job.cancel('reason'), -> job request for cancellation with a reason
+ * job.join(), -> suspends until completes
+ * job.cancelAndJoin() -> cancel + wait for cleanup
+ */
+
+
