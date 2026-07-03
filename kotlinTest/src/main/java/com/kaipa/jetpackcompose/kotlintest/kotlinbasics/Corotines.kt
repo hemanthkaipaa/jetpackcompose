@@ -218,6 +218,16 @@ suspend fun asyncAwait(scope: CoroutineScope){
  */
 
 
+/**
+ *   A main fun can be a suspend function and accepts suspend functions with out runBlocking.
+ *   ex:  suspend fun main(){
+ *       otherSuspendfunction()
+ *         // but at the same time launch{} cannot be called as it doesn't have a coroutine scope.
+ *   }
+ *
+ */
+
+
 // module 3 Job Cancellation and Exception handling
 
 // Job -  every coroutine has its own lifecycle which is handled by 'Job'
