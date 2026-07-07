@@ -1,0 +1,271 @@
+┌───────────────────────────────────────────────────┐
+│              PRESENTATION LAYER                    │
+│         (UI, ViewModels, Compose)                  │
+│                                                    │
+│   "How is data shown? How does user interact?"    │
+│                                                    │
+│   Depends on: Domain                               │
+├───────────────────────────────────────────────────┤
+│                DOMAIN LAYER                        │
+│        (Business Logic, Use Cases)                 │
+│                                                    │
+│   "What does the app DO? What are the rules?"     │
+│                                                    │
+│   Depends on: Nothing (pure Kotlin)                │
+├───────────────────────────────────────────────────┤
+│                 DATA LAYER                         │
+│      (Repositories, API, Database)                 │
+│                                                    │
+│   "Where does data come from? How is it stored?"  │
+│                                                    │
+│   Depends on: Domain                               │
+└───────────────────────────────────────────────────┘
+
+              ↓                       ↑
+     Presentation depends       Data depends
+       on Domain                on Domain
+              ↓                       ↑
+           ┌───────────────────────┐
+           │       DOMAIN          │  ← center
+           │   (depends on nothing) │
+           └───────────────────────┘
+
+The thumb rule:
+The domain layer is at center here only kotlin and strictly no Android Imports, no Retrofit, no Room, no compose
+everything depends on domain layer.
+1. presentation depends on domain layer (uses models,calls,use cases)
+2. data layer depends on domain layer (implements repository interfaces defined here)
+3. domain imports from nothing..
+
+───────────────────────────────────────────────────────────────────────────────────────────────────│
+Data Layer:
+The layer that talks to the outside world. It knows how to get and store data.
+
+Lives Here:
+1. Retrofit API Interfaces
+2. Room DAO's
+3. API DTO's
+4. Database Entities
+5. Mappers(DTO to Domain Mapper)
+6. Repository Implementations(RepositoryImpl)
+
+Never Lives Here
+1. Business Logic
+2. ViewModels
+3. Compose UI
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+Domain Layer:
+The Layer which defines what you app is about.
+
+Lives Here
+1. Domain Models
+2. Repository Interfaces
+3. Use cases
+
+Never Lives here
+1. Android Imports
+2. RetrofitAPI Interfaces
+3. Compose Imports
+4. Any Framework
+
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+Presentation Layer:
+The Layer users see. Handles UI state and Interactions.
+
+Lives Here
+1. ViewModels
+2. UIState Classes
+3. Composables
+4. Navigation Logic
+
+Never Lives Here
+1. API calls
+2. Database access
+3. Business logic
+───────────────────────────────────────────────────────────────────────────────────────────────────
+Test yourself.
+Can I Change retrofit for Ktor, or Room for SQLDelight, without touching the Domain layer or Presentation?
+-> if Yes (Clean Architecture is working)
+-> if No (You have leaked framework details in wrong layer)
+
+If you say "I use Clean Architecture so my business logic is testable without instrumented tests,
+and so I can swap data sources without touching the UI or business rules" — senior answer.
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+How the Layers communicate?
+
+User Interaction (Compose)
+        ↓
+   ViewModel receives event
+        ↓
+   ViewModel calls UseCase
+        ↓
+   UseCase calls Repository (via interface)
+        ↓
+   Repository Impl fetches from API/DB (DataLayer knows)
+        ↓
+   Repository Impl maps to Domain Model
+        ↓
+   UseCase optionally applies business logic
+        ↓
+   ViewModel receives Domain Model, converts to UiState
+        ↓
+   Composable observes StateFlow, renders
+
+Notice: ViewModel never touches Retrofit. Composable never touches Domain business logic directly.
+Every layer has one responsibility.
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+Why we need Interfaces?
+
+Repository is defined as an Interface in Domain layer and implemented in Data layer
+
+interface MatchRepository{
+    fun observeLiveMatches() : Flow<List<Match>>
+}
+
+//in data layer
+class MatchRepositoryImpl(val api : APIService) : MatchRepository{
+     override fun observeLiveMatches(){
+
+     }
+}
+
+Why?
+Because domain layer can't know about MatchRepositoryImpl(which lives in data layer )
+But data can know about domain inner layer.
+
+By defining the interface in domain, we invert the dependency so data layer now depends on domain Interface,
+not on any other way around. this is called the Dependency Inversion principle the 'D' in SOLID principles
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+Use Cases — The Domain Layer's Public API
+A use case is one specific business operation. One class, one responsibility.
+
+class ObserveLiveMatchesUseCase( private val repo: MatchRepository) {
+    operator fun invoke(): Flow<List<Match>> = repo.observeLiveMatches()
+        .map { matches -> matches.filter { it.isLive } }
+        .map { matches -> matches.sortedByDescending { it.startTime } }
+}
+Why use cases and not just call the repository directly?
+
+Business logic centralization — filters, sorts, transformations live in one place
+Reusability — multiple ViewModels can use the same use case
+Testability — test business rules without mocking Android
+Clear intent — ObserveLiveMatchesUseCase names what it does; a repository has many methods
+───────────────────────────────────────────────────────────────────────────────────────────────────
+Testability — The Real Payoff
+Here's why senior engineers actually use Clean Architecture:
+Testing a use case:
+
+class ObserveLiveMatchesUseCaseTest {
+    @Test
+    fun `only live matches are returned`() = runTest {
+        val fakeRepo = object : MatchRepository {
+            override fun observeLiveMatches() = flowOf(
+                listOf(
+                    Match(id="1", isLive=true, ...),
+                    Match(id="2", isLive=false, ...)
+                )
+            )
+        }
+        val useCase = ObserveLiveMatchesUseCase(fakeRepo)
+
+        val result = useCase().first()
+        assertEquals(1, result.size)
+        assertTrue(result[0].isLive)
+    }
+}
+No Android needed. No emulator. No mocking framework. Pure JVM unit test that runs in milliseconds. That's the reward.
+───────────────────────────────────────────────────────────────────────────────────────────────────
+
+Common Package Structure
+Here's what we're building (in your cricbuzz package):
+
+cricbuzz/
+├── data/
+│   ├── remote/
+│   │   ├── FakeMatchDataSource.kt      ← simulates API (today)
+│   │   └── dto/
+│   │       ├── MatchDto.kt              ← shape from "API"
+│   │       └── ScoreDto.kt
+│   ├── mapper/
+│   │   └── MatchMapper.kt              ← DTO → Domain conversion
+│   └── repository/
+│       └── MatchRepositoryImpl.kt      ← implements Domain interface
+│
+├── domain/
+│   ├── model/
+│   │   ├── Match.kt                    ← pure Kotlin model
+│   │   ├── Score.kt
+│   │   └── Team.kt
+│   ├── repository/
+│   │   └── MatchRepository.kt          ← interface only
+│   └── usecase/
+│       └── ObserveLiveMatchesUseCase.kt
+│
+├── presentation/
+│   └── matches/
+│       ├── MatchesUiState.kt           ← sealed interface
+│       ├── MatchesViewModel.kt         ← StateFlow + hilt
+│       └── MatchesScreen.kt            ← Composable
+│
+└── di/
+    └── CricbuzzModule.kt               ← Hilt bindings
+
+ ───────────────────────────────────────────────────────────────────────────────────────────────────
+so if we have multiple screens we must use
+Group by feature/screen for presentation, but share domain and data horizontally when logic is genuinely shared.
+
+cricbuzz/
+├── common/                       ← truly shared across the app
+│   ├── domain/
+│   │   └── model/                ← Match, Team, Player, Score (shared models)
+│   └── ui/
+│       ├── components/           ← LoadingIndicator, ErrorScreen, TeamBadge
+│       └── theme/
+│
+├── data/                         ← ALL data sources & repos (shared, singleton-scoped)
+│   ├── remote/
+│   │   ├── CricbuzzApiService.kt
+│   │   ├── FakeMatchDataSource.kt
+│   │   └── dto/                  ← MatchDto, TeamDto, PlayerDto
+│   ├── mapper/                   ← DTO ↔ Domain mappers
+│   └── repository/               ← MatchRepositoryImpl, TeamRepositoryImpl, PlayerRepositoryImpl
+│
+├── domain/                       ← ALL domain logic (shared)
+│   ├── repository/               ← MatchRepository, TeamRepository, PlayerRepository (interfaces)
+│   └── usecase/                  ← ObserveLiveMatches, GetTeamPlayers, GetPlayerDetails
+│
+├── presentation/                 ← FEATURE-based subfolders
+│   ├── livematches/
+│   │   ├── MatchesViewModel.kt
+│   │   ├── MatchesUiState.kt
+│   │   ├── MatchesScreen.kt
+│   │   └── components/           ← screen-specific composables (MatchCard, ScoreDisplay)
+│   │
+│   ├── teams/
+│   │   ├── TeamsViewModel.kt
+│   │   ├── TeamsUiState.kt
+│   │   ├── TeamsScreen.kt
+│   │   └── components/
+│   │
+│   ├── teamplayers/
+│   │   ├── TeamPlayersViewModel.kt
+│   │   ├── TeamPlayersUiState.kt
+│   │   ├── TeamPlayersScreen.kt
+│   │   └── components/
+│   │
+│   └── playerdetails/
+│       ├── PlayerDetailsViewModel.kt
+│       ├── PlayerDetailsUiState.kt
+│       ├── PlayerDetailsScreen.kt
+│       └── components/
+│
+├── navigation/
+│   └── CricbuzzNavGraph.kt       ← nav routes and destinations
+│
+└── di/
+    └── CricbuzzModule.kt         ← Hilt bindings for repos/data sources

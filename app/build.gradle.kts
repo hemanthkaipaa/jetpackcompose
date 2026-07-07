@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -85,6 +86,10 @@ dependencies {
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
 }
 val hilt_version = "2.57.1"
