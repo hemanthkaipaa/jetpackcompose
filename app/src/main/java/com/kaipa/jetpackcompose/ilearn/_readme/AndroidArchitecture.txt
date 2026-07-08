@@ -1,0 +1,20 @@
+┌─────────────────────────────────────┐
+│   Applications                        │  ← Your apps, system apps
+├─────────────────────────────────────┤
+│   Java API Framework                  │  ← Activity Manager, Window Manager,
+│                                        │    Content Providers, View System, etc.
+├─────────────────────────────────────┤
+│   Native C/C++ Libraries  │  ART       │  ← libc, SSL, SQLite, WebKit, OpenGL
+│                            │ (Runtime)  │  ← Android Runtime + Core libraries
+├─────────────────────────────────────┤
+│   Hardware Abstraction Layer (HAL)    │  ← Camera HAL, Audio HAL, VHAL, etc.
+├─────────────────────────────────────┤
+│   Linux Kernel                        │  ← Drivers, power mgmt, memory mgmt,
+│                                        │    process mgmt, IPC (Binder driver)
+└─────────────────────────────────────┘
+
+ART compiles APK bytecode (DEX) using AOT (ahead-of-time, at install) and JIT (just-in-time, at runtime) hybrid compilation
+ — different from the old Dalvik which was purely JIT.
+ ART also does Zygote forking: a base process pre-loads core framework classes and shared library mappings, then every new app process is fork()ed from Zygote.
+ This is why app cold starts are fast.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────

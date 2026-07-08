@@ -1,0 +1,129 @@
+The Complete Android System Design Map
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. App launch journey (cold/warm/hot) — every company asks this
+2. Threading Model (Looper, Handler) — every company asks this
+3. Process & Memory Management — very common
+4. Boot sequence — already done ✅
+5. Binder IPC basics — automotive companies expect this
+6. Permission & Security — good to know, quick topic
+7. Multi-user — AAOS specific, cover when we do AAOS
+────────────────────────────────────Threading Model──────────────────────────────────────────────
+Your app needs to do many things: draw UI, handle touch events, receive lifecycle callbacks from AMS,
+ process click listeners, update text.
+  All of these happen on the main thread (also called the UI thread).
+But a thread can only do one thing at a time. So how does one thread handle all these tasks without missing anything?
+The answer is a message queue system.
+Think of it like a restaurant kitchen:
+    Orders come in and are placed on a queue (order slip rail)
+    The chef picks one order at a time, completes it, picks the next
+    Orders never get lost because they're queued
+Android's main thread works exactly like this.
+The Three Pieces
+1. MessageQueue — the queue of tasks
+    This is literally a list of pending tasks (called Messages).
+    When someone says "run this code on the main thread," a Message is placed into this queue.
+2. Looper — the infinite loop that reads the queue
+    The Looper does one thing forever:
+    while (true) {
+        Message msg = queue.next();   // wait for next message
+        msg.target.handleMessage(msg); // execute it
+    }
+    It picks the next message from MessageQueue, executes it, picks the next one, executes it — forever.
+    It never stops. The moment Looper stops, your app is dead (ANR or crash).
+3. Handler — the way to put messages into the queue
+    A Handler is tied to a specific Looper (and therefore a specific thread). When you call handler.post(runnable) or handler.sendMessage(msg), it places that task into that Looper's MessageQueue.
+    Think of it as: the waiter who takes the order and puts the slip on the rail.
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+Someone posts a task
+  → Handler puts it into MessageQueue
+    → Looper picks it up
+      → Looper calls handleMessage() or runs the Runnable
+        → Task is done
+          → Looper picks the next message
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+
+Simple example:
+
+kotlin
+    // On a background thread, you want to update UI
+    val handler = Handler(Looper.getMainLooper())
+    handler.post {
+        textView.text = "Updated!"  // runs on main thread
+    }
+
+    What happened here: you created a Handler attached to the main thread's Looper.
+    When you called handler.post(), it placed your Runnable into the main thread's MessageQueue.
+    The main thread's Looper picked it up and executed it.
+    The text got updated safely on the main thread.
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+
+Every Thread Does NOT Have a Looper
+This is important. Only threads that call Looper.prepare() have a Looper.
+By default, a regular background thread has no Looper — it runs its code once and dies.
+The main thread is special because ActivityThread.main() calls Looper.prepareMainLooper() automatically.
+If you want a background thread with a Looper (a thread that stays alive and processes messages continuously),
+Android gives you HandlerThread:
+    val bgThread = HandlerThread("MyBackgroundThread")
+    bgThread.start()
+    val bgHandler = Handler(bgThread.looper)
+
+    bgHandler.post {
+        // this runs on bgThread, not main thread
+        val data = fetchFromNetwork()
+    }
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+What Happens During Your App's Life — All Through This System
+
+->AMS sends a Binder call to your app: "pause this Activity"
+->Your app's Binder thread receives it
+->The Binder thread uses a Handler to post a message to the main thread's MessageQueue
+->The main Looper picks it up Activity.onPause() is called
+
+Every single thing on your main thread goes through this pipeline:
+
+->Touch events → posted as messages → Looper executes them
+->onClick callbacks → posted as messages → Looper executes them
+->Lifecycle callbacks (onCreate, onPause) → posted as messages → Looper executes them
+->view.invalidate() (redraw) → posts a message → Looper executes it
+->Coroutine on Dispatchers.Main → posts to this same Looper
+
+Nothing on the main thread ever "just runs." Everything is a message in the queue.
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+What Causes ANR (Application Not Responding)?
+Now this becomes easy to understand. ANR happens when:
+The Looper is stuck on one message for too long (5 seconds for input, 10 seconds for broadcast receivers).
+If you do a network call on the main thread, the Looper is busy waiting for the network response.
+During that time, touch events, lifecycle callbacks, and draw commands are all sitting in the MessageQueue, unprocessed.
+After 5 seconds, the system says "this app is not responding" and shows the ANR dialog.
+This is why the rule is: never block the main thread. Because blocking the main thread means blocking the Looper,
+which means blocking everything.
+───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+Main Thread
+┌──────────────────────────────────┐
+│  Looper (infinite loop)          │
+│    ↓                             │
+│  MessageQueue                    │
+│    [touch event]                 │
+│    [onPause callback]            │
+│    [onClick handler]             │
+│    [coroutine resume]            │
+│    [view.invalidate]             │
+│    ...                           │
+│                                  │
+│  Looper picks one → executes     │
+│  Looper picks next → executes    │
+│  Looper picks next → executes    │
+│  (forever)                       │
+└──────────────────────────────────┘
+
+Background Thread (no Looper by default)
+  → runs code once → dies
+
+HandlerThread (has its own Looper)
+  → runs messages from its own queue → stays alive
+
+  One-Line Summary for Quick Recall
+
+  Main thread has a Looper that runs an infinite loop reading Messages from a MessageQueue.
+  Handler puts messages into the queue. Everything — touch, lifecycle, clicks, coroutine resumes — is a message processed by this Looper.
+  Block the Looper = ANR.

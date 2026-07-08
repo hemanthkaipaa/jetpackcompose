@@ -1,0 +1,115 @@
+The Complete Android System Design Map
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. App launch journey (cold/warm/hot) — every company asks this
+2. Threading Model (Looper, Handler) — every company asks this
+3. Process & Memory Management — very common
+4. Boot sequence — already done ✅
+5. Binder IPC basics — automotive companies expect this
+6. Permission & Security — good to know, quick topic
+7. Multi-user — AAOS specific, cover when we do AAOS
+
+────────────────────────────────────App launch journey──────────────────────────────────────────────
+What Happens When You Tap an App Icon?
+This is the full journey from finger touch to your Activity showing on screen.
+
+Step 1: Your finger touches the screen
+
+-> The touch hardware generates a raw touch event. The Linux kernel's input driver picks it up and
+    sends it to InputManagerService and figures out which window is under your finger and passes the event to WindowManagerService,
+    which delivers it to the correct app — in this case, the Launcher app.
+So at this point, the Launcher app receives a "user tapped at position X, Y" event on the app icon.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 2: Launcher App calls startActivity()
+
+The Launcher knows which app that icon belongs to (it got that info from PackageManagerService during boot). So it calls:
+startActivity(intent)
+This is NOT a direct call to your app. Your app might not even be running yet.
+This call goes through Binder IPC to ActivityManagerService (AMS) inside system_server.
+So the Launcher is basically saying: "Hey AMS, the user wants to open this app. Please handle it."
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 3: AMS takes charge
+AMS is the decision maker. It does several things:
+a) AMS Checks if the app's process is already running
+
+    If yes → warm/hot start (skip to Step 5)
+    If no → cold start (continue to Step 4)
+
+b) Checks permissions like
+Is this app allowed to launch? Is it disabled? Is the user profile allowed to use it?
+
+c) Manages the task/back stack
+Should this activity go into an existing task or a new task?
+What are the launch mode rules (standard, singleTop, singleTask, singleInstance)?
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 4: AMS asks Zygote to fork a new process (Cold Start)
+
+This is the cold start path. AMS sends a request to Zygote over a socket connection
+    (this is one of the rare cases where Android uses a Unix socket instead of Binder
+    — because Binder needs a process to already exist, and this process doesn't exist yet).
+Zygote receives the request and does:
+
+fork() — creates a copy of itself (the child process)
+The child process already has ART runtime and all framework classes loaded (because Zygote pre-loaded them
+The child process is assigned a unique PID and unique UID (Linux-level app sandbox)
+
+Now your app has a process, but it's still an empty shell — no Application object, no Activity, nothing yet.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 5: Your app's process initializes
+Inside the newly forked process, the following happens in order:
+a) ActivityThread.main() is called
+    This is the actual entry point of every Android app. Not onCreate().
+    ActivityThread.main() does one critical thing:
+        Looper.prepareMainLooper();
+        Looper.loop();
+    This sets up the main thread's message loop. From this moment, everything your app does on the main thread
+    (UI updates, lifecycle callbacks, click handlers) runs through this Looper.
+b) Application.onCreate() is called
+    Your Application class is created.
+    This is also where heavy libraries initialize (analytics, crash reporting, etc.). If your cold start is slow, this is usually the culprit.
+c) AMS tells the process: "now create this Activity"
+    AMS sends a Binder message back to your process saying "create Activity X."
+    Your process's ActivityThread receives this message through the Looper and:
+    Creates the Activity instance
+    Calls Activity.onCreate() → onStart() → onResume()
+    In onCreate(), your setContentView() or Compose setContent{} sets up the view tree
+    The view tree is measured, laid out, and drawn
+    The first frame is rendered and sent to SurfaceFlinger
+    SurfaceFlinger composites it onto the screen
+
+Now the user sees your app.
+
+Cold vs Warm vs Hot Start — Simple Explanation
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Start Type         | What's already alive?              | What needs to happen?             | Speed
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Cold                 Nothing.                             No process.Fork from Zygote →
+                                                          Application.onCreate →
+                                                          Activity.onCreate → first draw      Slowest (1-3 sec)
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Warm                Process exists, Application alive,
+                    but Activity was destroyed            Activity.onCreate → first draw      Medium
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Hot                 Process exists,                       Activity exists in memory
+                                                          (just in background)
+                                                          Activity.onRestart → onResume       Fastest(ms)
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+Finger touches screen
+  → Input Driver (kernel)
+    → InputManagerService
+      → WindowManagerService
+        → Launcher receives touch event
+          → Launcher calls startActivity()
+            → Binder IPC to AMS
+              → AMS checks process alive?
+                → NO (cold): AMS → Zygote → fork()
+                → YES (warm/hot): skip fork
+              → ActivityThread.main() starts Looper
+                → Application.onCreate()
+                  → Activity.onCreate()
+                    → View tree measured + drawn
+                      → SurfaceFlinger puts frame on screen
+                        → User sees the app
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────

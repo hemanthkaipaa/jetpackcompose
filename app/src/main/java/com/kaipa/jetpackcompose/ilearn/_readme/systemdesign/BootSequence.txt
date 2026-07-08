@@ -1,0 +1,127 @@
+The Complete Android System Design Map
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. App launch journey (cold/warm/hot) — every company asks this
+2. Threading Model (Looper, Handler) — every company asks this
+3. Process & Memory Management — very common
+4. Boot sequence — already done ✅
+5. Binder IPC basics — automotive companies expect this
+6. Permission & Security — good to know, quick topic
+7. Multi-user — AAOS specific, cover when we do AAOS
+
+────────────────────────────────────Boot Sequence───────────────────────────────────────────────────
+
+ What is Android System Design?
+
+ Think of it this way:
+ your phone has dozens of apps, hundreds of services, cameras, sensors, Bluetooth, WiFi — all working together smoothly.
+ Someone has to start all of this in the right order, make sure they can talk to each other, and keep them running safely.
+ Android System Design is the blueprint of how all these pieces are organized, started, and connected.
+ It answers: who starts first? Who starts whom? How do they talk? Who decides what lives and what dies when memory runs low?
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+Step 1: Power Button Pressed → Bootloader
+
+You press the power button. The very first thing that runs is NOT Android.
+It's the Bootloader — a tiny program baked into the chip by the hardware manufacturer (Qualcomm, MediaTek, etc.).
+The bootloader's only job: check that the system is not corrupted, then load the Linux Kernel into memory and hand over control to it.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 2: Linux Kernel Starts
+
+The kernel is the absolute boss of the hardware. It wakes up first and does the basics:
+
+->Sets memory management (who gets how much RAM)
+->Starts CPU scheduling (who gets to run when)
+->Loads hardware drivers (display, touch, storage, USB)
+->Sets up the Binder driver (this is Android's phone line — every app and service will use this to talk to each other later)
+
+At this point, your screen might show the manufacturer logo (Samsung, Pixel, Zebra). No Android yet — just the kernel getting the hardware ready.
+The kernel then starts one single process: a program called init.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+ Step 3: init — The First Process (PID 1)
+
+ init is the very first process. It is the mother of every other process on the phone. Its process ID is literally 1.
+ What does init do? It reads a script file called init.rc which is like a to-do list:
+
+-> Mount file systems (make storage accessible)
+-> Set permissions and security policies (SELinux)
+-> Start essential daemon processes (background workers)
+
+init starts several important background workers:
+
+servicemanager — Every system service will register its name here. When your app wants to talk to, say, the Location service,
+                it asks servicemanager "where is the Location service?" and gets the Binder address back.
+surfaceflinger — the display compositor. Takes frames from all apps and layers them on screen. Without this, nothing appears on display.
+logd — the logging daemon (where your Log.d() messages go)
+adbd — ADB daemon (so your computer can talk to the phone)
+vold — volume daemon (manages SD cards, USB storage)
+
+These are all running, but there's still no Java, no Android framework, no apps.
+
+-> Finally and Most importantly: start Zygote
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+ Step 5: Zygote Starts — The Mother of All Apps
+
+ This is the most important process in the Android world after init.
+ Zygote is a special process that:
+
+-> Starts the Android Runtime (ART) — the engine that runs Java/Kotlin code
+-> Pre-loads all the common Android framework classes (Activity, View, Context, etc.) and shared libraries into memory
+-> Then sits and waits
+-> Why does it pre-load everything? Because every app needs these same classes. Instead of loading them fresh for every app (slow and wasteful),
+ Zygote loads them once. When a new app needs to start, Zygote simply forks itself — creates a copy of itself.
+ The new copy already has all framework classes loaded, so the app starts fast.
+ ─────────────────────────────────────
+->Zygote Starts system_server — The Brain of Android
+ system_server is the single most critical process in Android. If it crashes, the whole phone reboots (you'll see the boot animation again).
+ Inside system_server, dozens of system services start up, one by one, in a specific order:
+
+ 1. Boot phase services (started early, others depend on them):
+
+     -> ActivityManagerService (AMS) — Decides which activity to show, which process to kill,
+        manages the back stack, handles app launches.
+     -> PowerManagerService — manages wake locks, screen on/off, sleep
+     -> PackageManagerService (PMS) — scans all installed APKs, knows every app's permissions, resolves intents
+
+ 2. Core services (started next):
+
+    ->  WindowManagerService (WMS) — manages all windows on screen, decides Z-order (which window is on top), dispatches touch events to the right window
+    ->  InputManagerService — handles touch, keyboard, mouse events from hardware and sends them to WMS
+
+ 3. Other services (started after core is stable):
+
+    -> ConnectivityService — WiFi, mobile data, VPN
+    -> LocationManagerService — GPS, network location
+    -> NotificationManagerService — manages all notifications
+    -> AudioService — volume, routing, sound effects
+    -> CameraService — camera hardware access
+    -> BluetoothService
+    -> TelephonyService
+    -> And many more (50+ services in total)
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Step 7: System Ready → Launcher Starts
+
+Once all critical system services reports that we are "ready," AMS sends a BOOT_COMPLETED signal. At this point:
+
+-> AMS asks PMS "which app has the HOME intent filter?" — that's your Launcher app (the home screen)
+-> AMS tells Zygote: "fork a new process for the Launcher"
+-> Zygote forks → new process starts → Launcher's Application.onCreate() runs → then the home Activity starts
+You see your home screen with app icons
+
+This is also when BOOT_COMPLETED broadcast is sent to all apps that registered for it (like WhatsApp, Alarm apps) —
+they can now start their background work.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Power Button
+  → Bootloader (checks integrity, loads kernel)
+    → Linux Kernel (hardware setup, drivers, Binder driver)
+      → init (PID 1, reads init.rc)
+        → servicemanager (phone directory for services)
+        → surfaceflinger (screen compositor)
+        → Zygote (loads ART + framework classes)
+          → system_server (the brain)
+            → AMS, WMS, PMS, and 50+ services
+              → All services ready
+                → Launcher app started
+                  → Home screen visible
+                    → BOOT_COMPLETED broadcast
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────

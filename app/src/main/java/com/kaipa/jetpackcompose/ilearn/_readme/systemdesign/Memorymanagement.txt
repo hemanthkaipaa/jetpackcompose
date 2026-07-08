@@ -1,0 +1,89 @@
+The Complete Android System Design Map
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. App launch journey (cold/warm/hot) — every company asks this
+2. Threading Model (Looper, Handler) — every company asks this
+3. Process & Memory Management — very common
+4. Boot sequence — already done ✅
+5. Binder IPC basics — automotive companies expect this
+6. Permission & Security — good to know, quick topic
+7. Multi-user — AAOS specific, cover when we do AAOS
+────────────────────────────────────Process & Memory Management──────────────────────────────────────────────
+
+Every app runs in its own Linux process (remember, Zygote forked it).
+Each process consumes RAM. When RAM gets low, someone has to die.
+Android doesn't ask the user "which app should I close?" — it decides on its own.
+
+The question is: how does it decide?
+Process Priority — The Importance Ranking
+->Android assigns every process an importance level
+
+Level 1: Foreground Process (safest, almost never killed) ---> oom_adj score 0
+    This is an app the user is actively interacting with right now.
+    Android will kill almost everything else before touching a foreground process.
+
+Level 2: Visible Process (very safe) ---> oom_adj score 1
+    The user can see part of this app, but it's not in the foreground. Example:
+        Your app shows a dialog, and behind the dialog, another Activity from your app is visible but not focused
+        An Activity called onPause() but not onStop() — it's partially visible
+    Almost never killed. Only in extreme memory pressure.
+
+Level 3: Service Process (moderately safe) ---> oom_adj score 5
+    The app has a running Service (started with startService()) but nothing visible on screen. Examples:
+        ->Downloading a file in background
+        ->Syncing data
+        ->Playing music without a foreground notification (bad practice, but possible)
+    Android keeps these alive for a while but will kill them if memory is needed for foreground/visible processes.
+
+Level 4: Cached (Background) Process (at risk) ---> oom_adj score 900-999
+    This is an app the user was recently using but then navigated away.
+    The Activity called onStop(). The process is alive but doing nothing useful.
+    Android keeps it cached so that if the user switches back, it's a hot start (fast).
+    But these are the first to be killed when RAM is needed.
+
+Level 5: Empty Process (first to die) ---> oom_adj score 999 - killed first
+    A process with no active components — no Activity, no Service, no BroadcastReceiver.
+    It exists only because Android hasn't cleaned it up yet. Killed immediately when any memory is needed.
+
+AMS constantly updates these scores as you switch between apps.
+The moment you press Home and open another app, your previous app's oom_adj jumps from 0 to 900+.
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+Low Memory Killer (LMK) — The Executioner
+When RAM drops below a threshold, the Low Memory Killer kicks in (lmkd)
+How it works:
+
+->  lmkd monitors available RAM
+->  When RAM drops below a threshold, it looks at all processes sorted by oom_adj score
+->  It kills the process with the highest oom_adj (least important) first
+->  If that's not enough, it kills the next one, and the next one
+->  It keeps going until enough RAM is freed
+
+Memory Inside Your Process — Heap and GC
+    Each app process gets its own heap — a chunk of RAM for creating objects. The heap has a limit (varies by device — typically 256MB to 512MB on modern phones).
+    When you create objects (Activities, Bitmaps, Lists), they go on the heap. When objects are no longer referenced, the Garbage Collector (GC) frees them.
+    Memory leaks happen when you hold a reference to something that should have been freed.
+    Classic examples:
+
+        An inner class holding a reference to an Activity that was destroyed
+        A static variable pointing to a Context
+        A long-running coroutine holding a reference to a View
+    When your heap fills up and GC can't free enough → OutOfMemoryError → your app crashes.
+
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+App launched → Process created → Heap allocated
+  → User interacts (oom_adj = 0, safe)
+    → User leaves app
+      → onSaveInstanceState() saves state to AMS
+        → oom_adj jumps to 900+
+          → RAM gets low
+            → lmkd checks oom_adj scores
+              → Kills highest score processes first
+                → Your process dies
+                  → User returns
+                    → Zygote forks new process (cold start)
+                      → onCreate(savedInstanceState) restores state
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+ One-Line Summary for Quick Recall
+
+ Every app process has an oom_adj score set by AMS. When RAM is low,
+ lmkd kills processes with the highest score first (background > service > visible > foreground).
+ State survives through onSaveInstanceState() which stores data in system_server's memory, not your app's memory.
