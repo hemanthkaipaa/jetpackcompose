@@ -1,0 +1,120 @@
+What is a Broadcast Receiver?
+A BroadcastReceiver is a component that listens for system-wide or app-wide announcements.
+
+Something happens (phone booted, battery low, WiFi connected)
+  → System creates a broadcast Intent
+    → Sends it to AMS
+      → AMS checks: who registered for this broadcast?
+        → AMS delivers the Intent to each registered receiver
+          → onReceive() is called in each receiver
+      ex:
+      class BatteryLowReceiver : BroadcastReceiver() {
+
+          override fun onReceive(context: Context, intent: Intent) {
+              // This runs on the MAIN THREAD
+              // You have roughly 10 seconds to finish
+              // After 10 seconds → ANR
+
+              if (intent.action == Intent.ACTION_BATTERY_LOW) {
+                  // Show notification, pause downloads, etc.
+                  Log.d("Battery", "Battery is low!")
+              }
+          }
+      }
+
+   Two critical rules about onReceive():
+
+   It runs on the main thread — don't do heavy work here
+   You have about 10 seconds — after that, system assumes you're stuck and throws ANR
+   Once onReceive() returns, the system considers your receiver dead — it can kill your process immediately
+
+   Two Ways to Register — Static vs Dynamic
+
+   Static Registration (in Manifest)
+   You declare the receiver in AndroidManifest.xml. The system knows about it even if your app is not running.
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+   Key point:
+   the app does NOT need to be running.
+   The system reads your manifest at install time, and when BOOT_COMPLETED fires,
+   the system starts your process just to deliver this broadcast.
+
+   But Android 8 (Oreo) changed this significantly.
+
+   Most implicit broadcasts can NO longer be received via static registration.
+    Google did this because hundreds of apps were registering for broadcasts like CONNECTIVITY_CHANGE,
+    and every time WiFi toggled, the system had to wake up hundreds of apps — destroying battery life.
+   Broadcasts that STILL work with static registration (exceptions):
+
+   Dynamic Registration (in Code)
+   You register the receiver at runtime, usually in an Activity or Service.
+   It only works while your app is alive and the component is active.
+
+           Ex:
+           class MainActivity : AppCompatActivity() {
+
+               private val wifiReceiver = object : BroadcastReceiver() {
+                   override fun onReceive(context: Context, intent: Intent) {
+                       // WiFi state changed
+                       Log.d("Wifi", "Connection changed!")
+                   }
+               }
+
+               override fun onResume() {
+                   super.onResume()
+                   // Register — start listening
+                   val filter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
+                   registerReceiver(wifiReceiver, filter)
+               }
+
+               override fun onPause() {
+                   super.onPause()
+                   // Unregister — stop listening
+                   unregisterReceiver(wifiReceiver)
+                   // ⚠️ MUST unregister! Otherwise → memory leak
+                   // The system holds a reference to your receiver
+                   // If Activity is destroyed but receiver is still registered
+                   // → leaked Activity reference → memory leak
+               }
+           }
+
+  Broadcast Sent
+    → AMS receives it
+      → AMS checks: static receivers? dynamic receivers?
+        → Delivers to all matching receivers
+          → Each receiver's onReceive() runs on MAIN THREAD
+            → You have ~10 seconds
+              → Do quick work or enqueue WorkManager task
+                → onReceive() returns → receiver is dead
+
+  One-Line Summary for Quick Recall
+
+  BroadcastReceiver listens for system or app events. onReceive() runs on main thread with ~10 second limit.
+   Static registration in manifest works even when app is dead but Android 8 restricted most implicit broadcasts.
+    Dynamic registration works while app is alive.
+   For long work from a broadcast, enqueue WorkManager — never do heavy work inside onReceive().
+
+   Common Interview Questions
+
+   "What changed with broadcasts in Android 8?"
+    → Most implicit broadcasts can't be received via manifest registration anymore.
+    Must use dynamic registration or the few whitelisted exceptions like BOOT_COMPLETED.
+
+   "Why was this restriction added?"
+   → Battery. When 100 apps register for CONNECTIVITY_CHANGE in manifest, every WiFi toggle wakes up 100 processes. Destroying battery and memory.
+
+   "Can you do network calls in onReceive()?"
+   → Technically yes, but it runs on main thread and you have 10 seconds.
+   Better approach: enqueue a WorkManager task from onReceive() and let it handle the network call on a background thread with retry support.
+
+   "What is the replacement for LocalBroadcastManager?"
+   → SharedFlow in a shared ViewModel or repository. Type-safe, lifecycle-aware, and no system overhead.
+   "What happens if you forget to unregister a dynamic receiver?"
+   → Memory leak. The system holds a reference to your receiver, which holds a reference to your Activity/Context, preventing garbage collection.

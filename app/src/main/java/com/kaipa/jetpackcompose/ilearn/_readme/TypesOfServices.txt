@@ -1,0 +1,223 @@
+What is a Service?
+A Service is a component that runs work in the background without a UI. No screen, no user interaction — just work happening behind the scenes.
+But here's a common misunderstanding: a Service does NOT run on a background thread by default.
+It runs on the main thread. If you do heavy work inside a Service without creating a separate thread, you'll get ANR
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+The Three Types of Services
+1. Started Service
+    You call startService(intent) and the service starts running. It keeps running even if the user leaves your app.
+    It has no connection back to the caller — fire and forget.
+    ex:
+    class DownloadService : Service() {
+
+        override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+            // This runs on MAIN THREAD — must create your own thread!
+            Thread {
+                downloadFile()
+                stopSelf()  // Must stop yourself when work is done
+            }.start()
+
+            return START_STICKY
+            // ↑ This tells the system what to do if it kills this service
+        }
+
+        override fun onBind(intent: Intent): IBinder? = null  // Not a bound service
+    }
+
+    // Starting it:
+    startService(Intent(this, DownloadService::class.java))
+
+    The return value from onStartCommand matters:
+
+    START_STICKY
+    System restarts the service but with null intent. Use for: music player, always-running service
+
+    START_NOT_STICKY
+    System does NOT restart. Use for: one-time tasks where restarting makes no sense
+
+    START_REDELIVER_INTENT
+    System restarts AND re-sends the original intent. Use for: file download — you need to know which file to retry
+
+    Key point: You must call stopSelf() when done. Otherwise the service runs forever, wasting battery and memory.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+2. Bound Service
+A client (Activity, Fragment, another Service) binds to it using bindService().
+The service lives only as long as at least one client is bound.
+When all clients unbind, the system destroys it.
+The service returns an IBinder in onBind(), and the client uses it to call methods on the service.
+ex:
+        class MusicService : Service() {
+
+            private val binder = MusicBinder()
+
+            inner class MusicBinder : Binder() {
+                fun getService(): MusicService = this@MusicService
+            }
+
+            override fun onBind(intent: Intent): IBinder = binder
+
+            fun play() { /* play music */ }
+            fun pause() { /* pause music */ }
+            fun getCurrentPosition(): Int { /* return position */ }
+        }
+
+        // In Activity:
+        private var musicService: MusicService? = null
+
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                val binder = service as MusicService.MusicBinder
+                musicService = binder.getService()
+                // Now you can call: musicService?.play()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                musicService = null
+            }
+        }
+
+        bindService(Intent(this, MusicService::class.java), connection, BIND_AUTO_CREATE)
+
+    A service can be BOTH started AND bound. A music player is a perfect example —
+    started (so it keeps playing when you leave), and bound (so the UI can show play/pause controls).
+     In this case, the service dies only when stopSelf() is called AND all clients unbind.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+ 3. Foreground Service
+
+     This is NOT a separate type — it's a started service that shows a notification.
+     The notification tells the user "this app is doing something right now."
+     Why does this exist?
+     Because Android aggressively kills background services to save battery.
+     A foreground service says "I'm important, don't kill me" by showing the notification.
+
+     Ex:
+     class LocationTrackingService : Service() {
+
+         override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
+             // Must create notification and call startForeground within 5 seconds
+             val notification = NotificationCompat.Builder(this, "tracking_channel")
+                 .setContentTitle("Tracking Location")
+                 .setContentText("Your run is being tracked")
+                 .setSmallIcon(R.drawable.ic_run)
+                 .build()
+
+             startForeground(1, notification)
+             //              ↑ notification ID (must be > 0)
+
+             // Now this service has high priority — oom_adj stays low
+             // System won't kill it under normal memory pressure
+
+             startLocationUpdates()
+
+             return START_STICKY
+         }
+
+         override fun onBind(intent: Intent): IBinder? = null
+     }
+
+     // Starting it (from Android 8+):
+     // Must use startForegroundService, not startService
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         startForegroundService(Intent(this, LocationTrackingService::class.java))
+     } else {
+         startService(Intent(this, LocationTrackingService::class.java))
+     }
+
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+     Foreground Service Restrictions — What Changed and Why
+         This is where Android has made major changes in recent versions.
+         Google is progressively locking down services because apps were abusing them — running invisible background work,
+         draining battery, tracking users.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+     Android 8 (Oreo, API 26) — Background Service Limits
+
+     What changed: If your app is in the background, you cannot call startService(). The system will throw IllegalStateException.
+     Why: Apps were starting services and running indefinitely in background, killing battery.
+     Solution: Use startForegroundService() and call startForeground() within 5 seconds to show a notification.
+     Or use WorkManager for deferrable work.
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+     Android 9 (Pie, API 28) — Foreground Service Permission
+
+     What changed: You must declare FOREGROUND_SERVICE permission in manifest.
+        <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+ ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+     Android 10 (API 29) — Foreground Service Type
+
+     What changed: You must declare what kind of foreground service you're running.
+         <service
+             android:name=".LocationTrackingService"
+             android:foregroundServiceType="location" />
+
+     // in code mention - FOREGROUND_SERVICE_TYPE_LOCATION
+     startForeground(1, notification, FOREGROUND_SERVICE_TYPE_LOCATION)
+  ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+     Android 12 (API 31) — Cannot Start Foreground Service from Background
+     What changed: Even startForegroundService() is now blocked if your app is in the background. You get ForegroundServiceStartNotAllowedException.
+     Why: Apps were using broadcast receivers or alarms to start foreground services even when the user wasn't using the app.
+
+     Exceptions where you CAN still start from background:
+
+     Your app has a visible Activity
+     Your app receives a high-priority FCM push
+     User interacts with your notification (action button)
+     Device is in a special state (car mode, alarm clock)
+
+     Solution for most cases: Use WorkManager with setExpedited() for urgent background work.
+  ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+  Android 14 (API 34) — Foreground Service Type is MANDATORY and Specific Permissions
+  What changed: This is the biggest restriction yet.
+
+  You MUST declare foregroundServiceType — no more generic foreground services
+  Each type requires its own runtime permission
+      <!-- Manifest -->
+      <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+      <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+      <service
+          android:name=".TrackingService"
+          android:foregroundServiceType="location"
+          android:exported="false" />
+      shortService is new and interesting: a foreground service that runs for max 3 minutes,
+      needs no special permission, and the system force-stops it after the timeout.
+      Good for quick sync or upload tasks.
+  ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+  Android 15 (API 35) — dataSync Timeout
+  What changed: dataSync foreground services now have a 6 hour time limit.
+  After 6 hours, the system calls onTimeout() and you must stop within seconds or the system force-crashes your app.
+
+  Why: Apps were running dataSync foreground services for days.
+  Google says if your sync takes more than 6 hours, you should use WorkManager instead.
+    ───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+  The Deprecated Ones
+
+  IntentService (Deprecated in API 30)
+      IntentService was a convenience class: it created a background thread automatically,
+      processed one intent at a time from a queue, and stopped itself when the queue was empty.
+      Why deprecated: Background service restrictions from Android 8 made it unreliable — the system could kill it.
+      Google says use WorkManager instead.
+
+  JobIntentService (also deprecated)
+      Google's replacement for IntentService that used JobScheduler on Android 8+ and IntentService on older versions.
+      But it was awkward to use and also deprecated. Again, WorkManager is the answer.
+
+ When to Use What — The Decision Guide
+
+ -> One-time task,can be deferred (upload photo, sync data)                             WorkManager
+ -> One-time task, needs to run NOW (send chat message)                                 WorkManager with setExpedited()
+ -> Periodic task (sync every 15 min, cleanup)                                          WorkManager (periodic)
+ -> User-visible ongoing task (music, navigation, workout tracking)                     Foreground Service
+ -> Quick computation (parse JSON, filter list)                                         coroutine
+ -> Task tied to a screen (API call for this screen)                                    coroutine
+ -> Real-time communication (chat, live updates)                                        FCM + WorkManager
+
+
+
+ The One-Line Interview Answer
+
+ "For most background work, I use WorkManager because it survives process death,
+ handles constraints like network/battery, and works within modern Android's background restrictions.
+ I only use foreground services when the user needs to see ongoing work — like navigation, music, or fitness tracking —
+ and I always declare the correct foregroundServiceType with its required permission."

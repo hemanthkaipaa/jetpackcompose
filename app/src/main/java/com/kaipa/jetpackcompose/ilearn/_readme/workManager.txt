@@ -1,0 +1,209 @@
+What is WorkManager?
+WorkManager is Android's recommended way to do background work that must eventually complete,
+even if the user leaves the app or the phone restarts.
+Think of it this way:
+you hand a task to WorkManager and say "do this when conditions are right."
+ WorkManager guarantees it will get done — maybe not right now, but it WILL happen.
+ Even if the app is killed, even if the phone reboots.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+The Problem WorkManager Solves
+    Before WorkManager, developers had multiple tools and none of them worked well across all Android versions:
+Old ToolProblem
+AlarmManager            Unreliable on Doze mode (Android 6+), complex API
+JobScheduler            Only works on Android 5+, no backward compatibility
+FirebaseJobDispatcher   Needed Google Play Services, deprecated
+IntentService           Killed by background restrictions (Android 8+)
+
+WorkManager wraps all of these internally. On Android 6+ it uses JobScheduler underneath.
+On older devices it falls back to AlarmManager + BroadcastReceiver. You don't care which — WorkManager picks the right one.
+One API, works on all versions, handles all restrictions automatically.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+The Core Pieces — 4 Things to Know
+1. Worker — The Actual Work
+This is where you write the code that should run.
+It runs on a background thread automatically — you don't need to create a thread.
+        ex: class UploadPhotoWorker(
+                context: Context,
+                params: WorkerParameters
+            ) : Worker(context, params) {
+
+                override fun doWork(): Result {
+                    // This runs on a background thread — safe to do heavy work
+
+                    val photoUri = inputData.getString("photo_uri") ?: return Result.failure()
+
+                    return try {
+                        uploadPhoto(photoUri)
+                        Result.success()   // ✅ Done! Task complete.
+                    } catch (e: IOException) {
+                        Result.retry()     // 🔄 Failed, try again later
+                    }
+                }
+            }
+
+Three possible results:
+Result                  What happens
+Result.success()        Task is done. WorkManager marks it complete.
+Result.failure()        Task failed permanently. Don't retry.
+Result.retry()          Task failed temporarily. WorkManager will retry based on backoff policy.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+2. WorkRequest — How to Schedule the Work
+
+OneTimeWorkRequest — runs once:
+    val uploadWork = OneTimeWorkRequestBuilder<UploadPhotoWorker>()
+        .setInputData(workDataOf("photo_uri" to "content://photos/123"))
+        .build()
+
+    WorkManager.getInstance(context).enqueue(uploadWork)
+    // Done. WorkManager handles everything from here.
+
+PeriodicWorkRequest — runs repeatedly:
+    val syncWork = PeriodicWorkRequestBuilder<SyncWorker>(
+        15, TimeUnit.MINUTES   // minimum interval is 15 minutes
+    ).build()
+
+    WorkManager.getInstance(context).enqueue(syncWork)
+
+Why 15 minutes minimum? Battery optimization. Google doesn't allow apps to wake up the system more frequently.
+If you need faster intervals, use a foreground service or coroutine while the app is alive.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+3. Constraints — Run Only When Conditions Are Right
+
+This is WorkManager's superpower. You can say "only run this task when WiFi is available and battery is not low."
+    val constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.UNMETERED)  // WiFi only
+        .setRequiresBatteryNotLow(true)                 // not low battery
+        .setRequiresCharging(false)                     // doesn't need charging
+        .setRequiresStorageNotLow(true)                 // enough storage
+        .setRequiresDeviceIdle(false)                   // doesn't need idle
+        .build()
+
+    val uploadWork = OneTimeWorkRequestBuilder<UploadPhotoWorker>()
+        .setConstraints(constraints)
+        .build()
+
+    WorkManager.getInstance(context).enqueue(uploadWork)
+    Now WorkManager waits until all constraints are met. User is on mobile data? Wait. Battery is low? Wait.
+     WiFi comes back? Now run.
+    If the task is running and WiFi disconnects mid-task, WorkManager stops the worker and retries later when WiFi is back.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+4. How WorkManager Persists Work — Survives Everything
+
+Here's the critical part. WorkManager stores all pending work in a Room database internally. Yes, it uses Room under the hood.
+Your app enqueues work
+  → WorkManager stores it in internal Room DB
+    → App gets killed? Doesn't matter — DB is on disk
+      → Phone reboots? Doesn't matter — DB survives
+        → After reboot, WorkManager reads DB
+          → Finds pending tasks
+            → Schedules them again via JobScheduler
+              → Work runs when constraints are met
+
+How does WorkManager survive a reboot?" → It stores work in a Room database. After reboot, it reads the DB,
+finds pending work, and reschedules via JobScheduler.
+
+how does it read do we need to open app, or it requests something to read db ?
+
+WorkManager registers a BroadcastReceiver for BOOT_COMPLETED in its own library manifest.
+You don't write this — WorkManager's library includes it automatically when you add the dependency.
+Phone reboots
+  → System sends BOOT_COMPLETED broadcast
+    → WorkManager's internal BroadcastReceiver wakes up
+      → It opens the internal Room DB
+        → Reads all pending/incomplete work requests
+          → Reschedules each one via JobScheduler
+            → Work runs when constraints are met
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+Retry and Backoff Policy
+
+When a Worker returns Result.retry(), WorkManager doesn't retry immediately. It uses a backoff policy:
+
+    val uploadWork = OneTimeWorkRequestBuilder<UploadPhotoWorker>()
+        .setBackoffCriteria(
+            BackoffPolicy.EXPONENTIAL,  // or LINEAR
+            10, TimeUnit.SECONDS        // initial delay
+        )
+        .build()
+
+LINEAR: retry after 10s, then 20s, then 30s, then 40s...
+EXPONENTIAL: retry after 10s, then 20s, then 40s, then 80s...
+Exponential is the default and usually the right choice — if a server is down, you don't want to hammer it every 10 seconds.
+
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Unique Work — Avoid Duplicates
+
+If the user taps "sync" 5 times, you don't want 5 sync workers running. Use enqueueUniqueWork():
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(
+                "sync_work",                          // unique name
+                ExistingWorkPolicy.KEEP,              // if already running, keep the old one
+                OneTimeWorkRequestBuilder<SyncWorker>().build()
+            )
+Policies for handling duplicates:
+Policy              What happens if work already exists
+KEEP                Keep the existing work, ignore the new request
+REPLACE             Cancel existing work, start new one
+APPEND              Add new work after existing work finishes
+APPEND_OR_REPLACE   Append if existing is running, replace if it failed
+
+For periodic work, use enqueueUniquePeriodicWork() with the same concept.
+
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Expedited Work — For Urgent Tasks
+
+Sometimes you need work to start immediately but still want WorkManager's guarantees. Use setExpedited():
+
+        val urgentWork = OneTimeWorkRequestBuilder<SendMessageWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
+        WorkManager.getInstance(context).enqueue(urgentWork)
+On Android 12+, this uses expedited jobs which get higher priority. On older versions,
+it runs as a foreground service automatically.
+The OutOfQuotaPolicy says what to do if the system has used up its expedited quota: fall back to running as normal (non-expedited) work.
+When to use expedited vs foreground service:
+
+Expedited work: user sends a message, quick sync after user action — starts fast, finishes fast
+Foreground service: ongoing visible task — music, navigation, workout tracking
+
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+
+Your code enqueues WorkRequest
+  → WorkManager stores in internal Room DB (survives everything)
+    → Checks constraints (network? battery? charging?)
+      → NOT met? Wait. Check again when conditions change.
+      → Met? Schedule via JobScheduler (API 23+) or AlarmManager (older)
+        → System triggers the Worker
+          → doWork() runs on background thread
+            → Result.success() → done, remove from DB
+            → Result.failure() → done, mark failed
+            → Result.retry() → back to queue, wait with backoff
+
+
+One-Line Summary for Quick Recall
+
+WorkManager stores tasks in a Room DB so they survive process death and reboot.
+It runs work when constraints are met, supports chaining/parallel execution, retries with backoff,
+and is the recommended solution for all deferrable background work on modern Android.
+───────────────────────────────────── ───────────────────────────────────── ─────────────────────────────────────
+Common Interview Questions
+
+"Why WorkManager over a simple coroutine?"
+→ Coroutine dies with the process. WorkManager survives process death and phone reboot because it persists to disk.
+
+"What's the minimum periodic interval?"
+→ 15 minutes. Battery optimization restriction.
+
+"How does WorkManager survive a reboot?"
+→ It stores work in a Room database. After reboot, it reads the DB, finds pending work, and reschedules via JobScheduler.
+
+"What's the difference between expedited work and foreground service?"
+→ Expedited is for quick tasks that need to start immediately but finish soon.
+Foreground service is for ongoing, user-visible tasks.
+
+"Can you cancel work?"
+→ Yes. WorkManager.cancelWorkById(id), cancelUniqueWork(name), or cancelAllWork().
+
+"How do you pass data between chained workers?"
+→ Worker 1 returns Result.success(outputData). Worker 2 reads it via inputData. Limit is 10KB.

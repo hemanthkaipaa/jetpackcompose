@@ -1,0 +1,125 @@
+The Complete Android System Design Map
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. App launch journey (cold/warm/hot) — every company asks this
+2. Threading Model (Looper, Handler) — every company asks this
+3. Process & Memory Management — very common
+4. Boot sequence — already done ✅
+5. Binder IPC basics — automotive companies expect this
+6. Permission & Security — good to know, quick topic
+7. Multi-user — AAOS specific, cover when we do AAOS
+────────────────────────────────────Binder IPC basics──────────────────────────────────────────────
+IPC = Inter-Process Communication. Talking between two different processes.
+Remember, every app runs in its own process with its own memory space.
+Process A cannot directly read Process B's memory. This is Linux security
+
+But apps need to talk to system services all the time:
+
+->Your app needs location → must talk to LocationManagerService (different process)
+->Your app calls startActivity() → must talk to AMS (different process)
+->Your app reads contacts → must talk to ContactsProvider (different process)
+
+So Android needs a fast, secure way for processes to communicate. That's Binder.
+
+Every time your app calls getSystemService(), startActivity(), ContentResolver.query(),
+or even sends a broadcast — underneath, a Binder transaction is happening.
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+1. Binder Driver (in Linux kernel)
+    It's a kernel module at /dev/binder. It handles:
+
+    -> Copying data between processes (one copy via memory mapping)
+    -> Thread management (waking up the right thread in the receiving process)
+    -> Security checks (attaching caller's UID/PID so the receiver can verify identity)
+
+2. ServiceManager — The Phone Directory - It's the very first service started by init
+    Every system service registers itself with ServiceManager:
+
+    -> AMS says: "My name is 'activity', here's my Binder handle"
+    -> WMS says: "My name is 'window', here's my Binder handle"
+    -> LocationService says: "My name is 'location', here's my Binder handle"
+
+    When your app calls getSystemService(Context.LOCATION_SERVICE), here's what happens:
+
+    Your app asks ServiceManager: "give me the Binder handle for 'location'"
+    ServiceManager returns the handle
+    Your app uses that handle to make Binder calls to LocationManagerService
+    -> Think of ServiceManager as a phone directory. You look up the name, get the number, then call directly.
+
+3. AIDL — The Language of Binder
+   AIDL = Android Interface Definition Language. It defines what methods can be called across process boundaries.
+   When you write an AIDL file:
+   interface ILocationService {
+       Location getLastKnownLocation(String provider);
+   }
+   The AIDL compiler generates two classes:
+
+   Proxy (client side) — sits in your app's process. When you call getLastKnownLocation(),
+       the Proxy packs the arguments into a Parcel, sends it via Binder driver to the other process, and waits for the reply.
+   Stub (server side) — sits in the service's process. It receives the Parcel from Binder driver,
+        unpacks the arguments, calls the real implementation, packs the result, and sends it back.
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+ How a Binder Call Actually Works — Step by Step
+ Let's say your app calls locationManager.getLastKnownLocation("gps").
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+
+        Your App Process                    Kernel                    system_server Process
+                                           (Binder Driver)           (LocationManagerService)
+
+        1. Proxy packs arguments
+           into a Parcel
+           ("gps" → bytes)
+                │
+                ▼
+        2. Proxy calls ioctl()
+           on /dev/binder
+           (sends the Parcel)
+                │                    3. Binder driver receives
+                │                       the data
+                │                    4. Copies data from your
+                │                       process memory to
+                │                       service's memory (ONE copy)
+                │                    5. Attaches your app's
+                │                       UID and PID for security
+                │                    6. Wakes up a Binder thread
+                │                       in system_server
+                │                              │
+                │                              ▼
+                │                    7. Stub in system_server
+                │                       unpacks the Parcel
+                │                    8. Calls real implementation:
+                │                       getLastKnownLocation("gps")
+                │                    9. Gets the Location object
+                │                   10. Stub packs result into
+                │                       reply Parcel
+                │                   11. Sends reply back through
+                │                       Binder driver
+                │                              │
+                ▼                              │
+        12. Your app's thread                  │
+            wakes up                           │
+        13. Proxy unpacks the                  │
+            reply Parcel                       │
+        14. Returns Location                   │
+            object to your code                │
+ ───────────────────────────────────── ───────────────────────────────────── ───────────────────────
+ All of this happens in microseconds. Your code just sees val location = locationManager.getLastKnownLocation("gps")
+ and gets a Location back. You never know all this happened.
+
+ Security — Binder's Superpower
+     This is what makes Binder special compared to other IPC.
+     Every Binder transaction carries the caller's UID and PID, attached by the kernel (not by the caller — so it can't be faked).
+      The receiving service can call:
+        int callerUid = Binder.getCallingUid();
+        int callerPid = Binder.getCallingPid();
+     Then it checks: "does this UID have permission to access location?" If not, it throws a SecurityException.
+     This is how the entire Android permission model works underneath. When you grant "Allow location access" for an app,
+     the system records that app's UID is allowed. When that app calls LocationService via Binder,
+     the service checks the UID against the permission record.
+ No other Linux IPC gives you this caller identity verification for free.
+
+
+ One-Line Summary for Quick Recall
+
+ Binder is Android's IPC mechanism — a kernel driver that copies data between processes in one copy,
+  attaches caller identity for security. AIDL generates Proxy (sender) and Stub (receiver) code.
+  ServiceManager is the directory where all system services register their Binder handles.
+  Every startActivity, getSystemService, and ContentProvider query is a Binder call
