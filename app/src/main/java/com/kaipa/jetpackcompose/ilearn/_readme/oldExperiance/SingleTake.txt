@@ -1,0 +1,123 @@
+Single Take Flow:
+
+-Camera app captures 15-second video → raw frames
+-Convert raw frames to YUV (ImageReader gives you YUV 4:2:0)
+-Send YUV frames to MediaCodec encoder → H.264 bitstream
+-Send H.264 bitstream to AI library (C++ .so)
+-AI library processes and returns filtered outputs (best images, slow-motion frames, etc.)
+-For highlight video: AI selects the best 5–6 seconds of filtered frames
+-You have offline music audio in a folder (not captured, pre-recorded)
+-Use MediaMuxer to stitch: highlight video (H.264) + offline audio track → final .mp4
+
+How to explain this in the interview:
+
+"Single Take is a camera feature where we capture 15 seconds of video.
+We pull raw frames from the camera HAL, convert them to YUV format using ImageReader,
+and encode them to H.264 using MediaCodec. Then we send the encoded bitstream to an AI library — written in C++
+— which analyzes the frames and generates outputs: collage, slow-motion variants, and a highlight video.
+
+For the highlight video, the AI filters down to the best 5–6 seconds.
+We then attach pre-recorded music from our app's assets using MediaMuxer,
+which multiplexes the video track and audio track into a single MP4 file at synchronized timestamps.
+The challenge was managing buffer allocation — MediaCodec has limited input/output buffers —
+and ensuring the state machine didn't drop frames while processing multiple outputs in parallel."
+
+---------------------------------------------------------------------------------------------------------------
+
+1. Camera app captures raw frames from HAL
+   ↓ (via Messenger IPC)
+2. Single Take service receives raw frames
+   ↓ (convert to YUV)
+3. MediaCodec encoder: YUV → H.264
+   ↓
+4. Original video file (.mp4) — 15 seconds
+   ↓ (extract all frames from this video file)
+5. MediaExtractor pulls frames from original video
+   ↓
+6. Send frames to AI library (C++ .so)
+   ↓
+7. AI library returns filtered outputs:
+   - Collage
+   - Slow-motion variant
+   - Highlight video (5–6 second selection)
+   - Filtered images
+   ↓
+8. For highlight video: MediaCodec encode filtered frames + offline music
+   ↓ (MediaMuxer to sync video + audio)
+9. Final outputs stored
+
+
+Class	                        Your usage
+Messenger	                    IPC communication: camera app sends raw frames to Single Take service
+MediaCodec (encoder)	        Convert YUV frames → H.264 bitstream for original video
+MediaCodec (decoder)	        If you needed to decode audio or frames later
+MediaExtractor	                Pull frames from the original video file, send to AI library
+MediaMuxer	                    Multiplex highlight video + offline music into final MP4
+
+
+"Single Take is a camera feature where the camera app sends raw frames to our service via Messenger IPC.
+We encode these raw frames to H.264 using MediaCodec to create an original 15-second video file.
+Then we use MediaExtractor to pull frames from that video file and send them to an AI library written in C++.
+The AI library analyzes the frames and generates outputs: collage, slow-motion, and a highlight video.
+For the highlight video, we attach pre-recorded music using MediaMuxer to synchronize the video track and audio track.
+The challenge was managing the state machine — multiple outputs had to be generated in parallel without dropping frames,
+and buffer allocation had to be optimized so the encoding pipeline didn't stall."
+
+--------------------------------------------------------------------------------------------------------------------
+Raw frames vs YUV
+
+"Raw" is ambiguous and interviewers will probe it. Two meanings:
+
+Bayer RAW — sensor output. Single-channel mosaic (RGGB pattern), one colour sample per pixel, 10–14 bit. Needs demosaicing, white balance, tone mapping — that's the ISP's job.
+Processed frames — what the camera HAL hands out after the ISP. Already YUV.
+
+In your case the camera team almost certainly gave you post-ISP frames, so "raw" meant "unencoded/uncompressed," not Bayer.
+Safer phrasing: "we received uncompressed frames from the camera pipeline and worked in YUV_420_888."
+
+Why YUV, not RGB
+
+Separates luma (Y) from chroma (U, V). Human vision is far more sensitive to brightness than colour, so chroma can be subsampled.
+4:2:0 = full-res Y, quarter-res U and V. 12 bits/pixel vs 24 for RGB888 — half the memory.
+H.264/HEVC encoders consume YUV natively. Feeding RGB means a colour-space conversion first, wasted cycles.
+Camera HAL and MediaCodec both speak YUV. No conversion in the pipeline at all.
+
+One-liner: "YUV 4:2:0 halves memory versus RGB and is what the encoder wants natively, so there's no conversion cost in the pipeline."
+
+24 fps
+
+Fine, but be ready for "why not 30?" Good answers: cinematic look for highlight/slow-mo outputs;
+20% fewer frames to buffer and push through the AI library; the memory budget.
+If the AI processing was the bottleneck, say so — that's the real engineering reason.
+
+The memory constraint — this is your strongest material
+
+Do the arithmetic out loud, it lands well:
+
+1080p YUV420 = 1920 × 1080 × 1.5 = ~3.1 MB/frame
+At 24 fps = ~75 MB/sec
+15 seconds uncompressed = ~1.1 GB — over your entire budget
+
+So you cannot hold the capture in memory. That's why the architecture is what it is: encode to H.264 on the fly, write to file,
+then re-extract frames in bounded batches for the AI library. The pipeline design falls directly out of the memory ceiling.
+
+Say it like this: "Our service was capped at 1 GB. A 15-second 1080p YUV buffer is over a gigabyte on its own,
+so holding frames in memory was never an option.
+We encoded to disk as frames arrived, then streamed them back through MediaExtractor in windows the AI library could handle.
+ If we exceeded the budget the system would reclaim memory and the camera preview would stutter — user-visible immediately."
+
+We never wrote a 1 GB file — that number was the uncompressed in-memory size,
+which is exactly why we didn't hold it. What lands on disk is the H.264-encoded video.
+
+The arithmetic:
+
+Raw YUV420, 1080p @ 24 fps, 15 s ≈ 1.1 GB
+Encoded H.264 at ~10–20 Mbps ≈ 20–40 MB for the same 15 seconds
+
+So encoding is roughly a 30–50× reduction. That's the whole point of encoding on the fly rather than buffering.
+
+What you keep afterward:
+
+Original video — kept, it's a user-visible output. They expect the full 15 seconds back.
+Highlight / slow-mo / collage — kept, those are the deliverables.
+Extracted frames fed to the AI library — transient. Decoded in bounded batches, passed to the library, released. Never all resident at once.
+Intermediate scratch — cache dir, deleted once the state machine finishes or the capture is cancelled.

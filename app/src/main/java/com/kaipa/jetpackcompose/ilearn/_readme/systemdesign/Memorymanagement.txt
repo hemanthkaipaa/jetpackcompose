@@ -21,13 +21,13 @@ Level 1: Foreground Process (safest, almost never killed) ---> oom_adj score 0
     This is an app the user is actively interacting with right now.
     Android will kill almost everything else before touching a foreground process.
 
-Level 2: Visible Process (very safe) ---> oom_adj score 1
+Level 2: Visible Process (very safe) ---> oom_adj score 100
     The user can see part of this app, but it's not in the foreground. Example:
         Your app shows a dialog, and behind the dialog, another Activity from your app is visible but not focused
         An Activity called onPause() but not onStop() — it's partially visible
     Almost never killed. Only in extreme memory pressure.
 
-Level 3: Service Process (moderately safe) ---> oom_adj score 5
+Level 3: Service Process (moderately safe) ---> oom_adj score 500
     The app has a running Service (started with startService()) but nothing visible on screen. Examples:
         ->Downloading a file in background
         ->Syncing data

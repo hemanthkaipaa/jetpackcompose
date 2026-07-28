@@ -1,0 +1,146 @@
+
+-----------------------------------------------------------------------------------------------------------------
+A ViewModel holds UI state in memory, typically in a StateFlow or LiveData.
+The ViewModel instance itself is held by the framework's ViewModelStore across configuration changes
+ — it's never destroyed on rotation. When the Activity is recreated, it retrieves the same ViewModel instance,
+ so the state is still there.
+ When the user presses back and the Activity is permanently destroyed,
+ ViewModelStore.clear() is called, the ViewModel's onCleared() method runs to release resources, and the instance is garbage collected."
+-----------------------------------------------------------------------------------------------------------------
+
+Heap memory
+├── Activity instance (destroyed on rotation)
+├── ViewModelStore (held by framework during rotation)
+│   └── ViewModel instance (SURVIVES)
+│       ├── StateFlow<UiState> (SURVIVES with latest value)
+│       ├── Job / coroutines launched in viewModelScope (SURVIVE)
+│       └── dependencies (Repository, UseCase, etc.)
+└── ... other objects
+
+ViewModelStore is scoped to the Activity/Fragment lifecycle, so it knows when to call onCleared().
+
+
+****************************     onSaveInstanceState        ***************************************
+
+How SaveInstanceState store and restore data after process killed / activity killed
+
+--------------------------------------------------------------------------------------------------------
+class MainActivity : AppCompatActivity() {
+
+    private var counter = 0
+    private var username = ""
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // RESTORE — savedInstanceState is null on first launch,
+        // non-null after rotation or process death
+        if (savedInstanceState != null) {
+            counter = savedInstanceState.getInt(KEY_COUNTER, 0)
+            username = savedInstanceState.getString(KEY_USERNAME, "")
+        }
+
+        findViewById<TextView>(R.id.text).text = "Count: $counter"
+
+        findViewById<Button>(R.id.button).setOnClickListener {
+            counter++
+            findViewById<TextView>(R.id.text).text = "Count: $counter"
+        }
+    }
+
+    // SAVE — called before the Activity is destroyed
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)   // saves View state (EditText text, etc.)
+        outState.putInt(KEY_COUNTER, counter)
+        outState.putString(KEY_USERNAME, username)
+    }
+
+    companion object {
+        private const val KEY_COUNTER = "counter"
+        private const val KEY_USERNAME = "username"
+    }
+}
+
+
+
+Mechanism	                Recomposition	Rotation	    Process death	            Notes
+plain field / local var	    ✗	            ✗	            ✗
+remember { }	            ✓	            ✗	            ✗	                        Compose only
+rememberSaveable { }	    ✓	            ✓	            ✓	                        Bundle-backed, small data
+onSaveInstanceState	        —	            ✓	            ✓	                        Bundle, ~500 KB ceiling
+SavedStateHandle	        ✓	            ✓	            ✓	                        Same Bundle, inside ViewModel
+ViewModel field	            ✓	            ✓	            ✗	                        Heap — dies with the process
+SharedPreferences          	✓	            ✓	            ✓	                        Disk, survives reboot
+Room / file	                ✓	            ✓	            ✓	                        Disk, large data
+
+--------------------------------------------------------------------------------------------------------
+
+questions
+1.    When exactly is onSaveInstanceState() called in the Activity lifecycle, and how does the system guarantee it runs before destruction?
+2.    Who initiates the Binder transaction that carries the Bundle to ActivityManagerService — the app or the system?
+3.    Where and how does AMS store the saved state? Is it persisted to disk or a database?
+4.    What is the maximum size that can be stored, and why is the guidance to save keys rather than payloads?
+
+--------------------------------------------------------------------------------------------------------
+1. When is onSaveInstanceState() called?
+    A.    onSaveInstanceState() is called before the Activity is destroyed. - *called after onStop()*  before onDestroy
+            based on a isFinish = true or false -> if its true it wont save as activity never wanted to recreate again
+--------------------------------------------------------------------------------------------------------
+2. Who initiates the Binder transaction?
+
+    The app process does, but under instruction from AMS.
+    The full sequence:
+
+    1. AMS (system_server) decides the Activity should stop
+       ↓ Binder call: scheduleStopActivity()
+    2. ActivityThread in YOUR process receives it
+       ↓ posts to the main thread Handler
+    3. ActivityThread calls callActivityOnSaveInstanceState()
+       ↓
+    4. Your Activity.onSaveInstanceState(outState) runs
+       ↓ (SavedStateRegistry providers collected here)
+    5. ActivityThread packs outState into an ActivityClientRecord
+       ↓ Binder call: activityStopped(token, state, ...)
+    6. AMS receives the Bundle in system_server
+
+AMS asks → your process saves → your process sends back
+--------------------------------------------------------------------------------------------------------
+3. Where does AMS store it?
+
+    A. In RAM, inside system_server. Not disk, not a database.
+
+Why it survives: system_server is the most privileged process on the device.
+It is never killed for memory reclaim — if it dies, the entire Android framework restarts (a "soft reboot").
+So it's a safe place to park state that must outlive your app's process.
+
+--------------------------------------------------------------------------------------------------------
+
+4. Maximum size and why keys, not payloads
+
+        The hard limit is the Binder transaction buffer: 1 MB per process,
+        shared across all concurrent Binder transactions in that process — not per call.
+
+        Exceeding it throws TransactionTooLargeException. In practice:
+
+        Treat ~500 KB as the realistic ceiling
+        Aim for under 50 KB for comfort
+        Google's own guidance says the Bundle is for "small amounts of state"
+
+--------------------------------------------------------------------------------------------------------
+
+            "AMS and the app talk over Binder in both directions —
+            IApplicationThread for AMS calling into the app, IActivityManager for the app calling into AMS.
+            AIDL generates the proxy and stub, but the actual transport is Binder transactions through /dev/binder."
+--------------------------------------------------------------------------------------------------------
+*"ViewModel survives rotation because the instance stays on the heap; onSaveInstanceState survives process death
+        because AMS holds the Bundle outside the app process.
+         Both are needed: ViewModel for cheap transient state, Bundle for state that must outlive a process kill.
+         The Bundle goes over Binder as a Parcel,
+        so I save small keys and re-fetch payloads to stay under the ~500 KB shared budget."*
+
+
+Doubt - Question
+
+Does the Bundle survive if the user swipes the app from Recents?
+A: No. Swiping removes the entire Task and its ActivityRecords from AMS. All state is discarded

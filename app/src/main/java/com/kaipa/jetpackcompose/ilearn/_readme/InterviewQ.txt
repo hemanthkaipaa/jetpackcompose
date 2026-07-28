@@ -1,0 +1,381 @@
+1.  MERGE vs REBASE
+    ================
+    Two line difference:
+    - Rebase replays your commits on top of the target branch, giving a clean linear
+      history. Use it when your changes are private or under review.
+    - Merge joins two branches together with a merge commit, preserving the true
+      parallel history. Use it when the branch is shared and others are working on it.
+
+    Rule I follow:
+    - Changes are PRIVATE (only mine, not yet merged) -> REBASE for clean history
+    - Branch is SHARED (others have it, already merged) -> MERGE
+
+    Practical Gerrit workflow:
+    - I push my change to Gerrit for review.
+    - Teammate's change gets merged into main first.
+    - Gerrit warns me: "your change is behind main."
+    - I rebase locally onto updated main, push new patchset.
+    - My change now sits cleanly on top. No messy merge commit.
+
+    When to just pull:
+    - No local commits yet -> just git pull. Nothing to rebase or merge.
+    - Rebase and merge only matter when BOTH sides have new commits to reconcile.
+
+    Why never rebase shared commits:
+    - Shared = already merged into main and others have pulled it.
+    - Rebasing rewrites commit hashes. Others still have old hashes -> their git pull breaks.
+    - Your Gerrit change is NOT shared yet, so rebasing it is always safe.
+    **
+    Rebase when you want clean history, especially if you and your teammate are on the same branch
+        — rebase onto their merged changes to stay on top.
+    Merge happens only when two separate branches come together into the main branch."
+____________________________________________________________________________________________________
+
+2.  Why AsynTask is deprecated
+
+    Problem 1: Memory leak.
+    AsyncTask held a strong reference to your Activity. Rotate the screen, Activity destroys,
+    but AsyncTask is still running and holding onto it. The old Activity can't be garbage collected. Memory leak.
+
+    Problem 2: No lifecycle awareness.
+    AsyncTask had no idea if your Activity was alive or dead. So when the background task finished and tried to update the UI,
+    the Activity might already be destroyed. Crash or wrong UI update.
+
+    Problem 3: Serial execution by default.
+    Before API 11, multiple AsyncTasks ran in parallel.
+     After API 11, they ran serially one by one on a single thread. So if you had multiple tasks,
+     they'd queue up and block each other. Very slow and unpredictable behavior that confused many developers.
+
+    How Coroutines fix all three:
+
+    For memory leaks, Coroutines are tied to a lifecycle scope like viewModelScope or lifecycleScope.
+    When the Activity or ViewModel is destroyed, the coroutine automatically cancels. No dangling references.
+
+    For lifecycle awareness, since Coroutines are scoped to the lifecycle, they know exactly when to stop.
+    No crashes from updating dead UI.
+
+    For execution, Coroutines are lightweight and can run thousands concurrently without blocking threads,
+     unlike AsyncTask's limited thread pool.
+
+    That's why Google deprecated AsyncTask in API 30 and pushed Coroutines as the replacement.
+    Want me to go into coroutine scopes specifically?
+____________________________________________________________________________________________________
+
+3. OS Migration Steps.
+
+    "I migrated an app from an older Android version to the latest by first assessing deprecated APIs
+    and breaking changes in the target version.
+    I then updated dependencies — like Gradle, support libraries, and third-party SDKs — to versions compatible with the new OS.
+    I addressed permission model changes, like runtime permissions on Android 6 or scoped storage on Android 11.
+    I tested on actual devices and emulators, fixed any runtime crashes or behavioral changes,
+    and ensured backward compatibility where needed.
+    The key was doing it incrementally — upgrading one or two minor versions at a time, testing thoroughly after each step,
+    rather than jumping multiple versions at once."
+
+____________________________________________________________________________________________________
+
+4. How a senior reviews a PR
+
+    HOW A SENIOR ANDROID DEV REVIEWS A PR
+    ======================================
+
+    1. Correctness against the ticket
+       - Read the ticket description and requirements first.
+       - Does the change actually solve what was asked?
+       - Are all edge cases covered?
+
+    2. Architecture consistency
+       - Does it follow the project's agreed architecture (e.g. Clean + MVVM)?
+       - No mixing in a different pattern just for this PR.
+       - SOLID principles respected.
+
+    3. Testability
+       - Is the logic unit-testable?
+       - Check for Android imports (Context, etc.) leaking into the domain layer
+         — that makes code hard to test and breaks Clean Architecture's dependency rule.
+
+    4. Readability & naming
+       - Clear, consistent naming conventions.
+       - Code is easy to follow, not clever-for-the-sake-of-it.
+
+    5. Async & threading
+       - Coroutines/Flows used correctly.
+       - Proper scope (viewModelScope/lifecycleScope), no blocking the main thread.
+
+    6. Memory & leaks
+       - No leaked references, no unreferenced/unused variables.
+       - Lifecycle handled properly (no dangling listeners, observers, callbacks).
+
+    One-liner: I review for correctness, architecture fit, testability, readability,
+    correct async handling, and memory safety.
+____________________________________________________________________________________________________
+
+5. JAVA TO KOTLIN MIGRATION
+   =========================
+
+   Approach: Gradual, file-by-file, not all at once.
+
+   Why gradual?
+   - Requires thorough testing at each step.
+   - Old Java and new Kotlin coexist during transition.
+   - Easier to catch and fix bugs in smaller chunks.
+
+   Layer-by-layer strategy:
+   - Start with DATA and DOMAIN layers (no Android imports, pure logic, easiest to test).
+   - Then UI layer last (has Android dependencies, more complex).
+   - Convert one file at a time within each layer.
+
+   Process:
+   1. Use Android Studio's built-in Java to Kotlin converter.
+   2. Review the generated Kotlin code (converter produces non-idiomatic Kotlin).
+   3. Refactor for clarity, null safety, and idiomatic Kotlin.
+   4. Test after each conversion.
+
+   Handling interoperability during migration:
+   - Java code still calling Kotlin functions? Use JVM annotations:
+     * @JvmStatic = static access for companion object members
+     * @JvmName = rename function for Java readability
+     * @JvmOverloads = generate overloaded versions for Java default parameters
+     * @JvmField = expose property as public field instead of getter/setter
+
+   Nullability during transition:
+   - When Kotlin calls remaining Java code, Java types become platform types.
+   - Handle potential nulls carefully to avoid crashes.
+
+   One-liner: Migrate gradually, layer-by-layer, use JVM annotations to bridge Java-Kotlin
+   calls during transition, and watch nullability between old and new code.
+____________________________________________________________________________________________________
+
+6.  Why Kotlin over Java?
+
+    -> Null safety.
+        Java has the notorious NullPointerException — you can assign null to any variable and crash at runtime.
+        Kotlin makes nullability explicit in the type system. `String` can never be null,
+       `String?` can be. The compiler catches null mistakes at compile time, not runtime.
+
+    -> Conciseness.
+        Kotlin requires way less boilerplate. No need for getters, setters, `equals()`, `hashCode()`, `toString()`
+        — Kotlin data classes generate all of that. A five-line Java class becomes one line in Kotlin.
+
+    -> Extension functions.
+        You can add functions to existing classes without inheritance or wrapper classes.
+        So instead of writing utility methods, you write `String.isValidEmail()` and call it on any string directly.
+        Makes code more readable.
+
+    -> Coroutines.
+        Kotlin has first-class support for coroutines, which are lightweight and perfect for async work.
+        Way better than Java's callback hell or AsyncTask.
+
+    -> Smart casts.
+        After an `if (x is String)` check, Kotlin automatically treats `x` as a String inside that block. No need to manually cast.
+
+    -> Scope functions.
+        `let`, `apply`, `run`, `with` make code more expressive and reduce temporary variables.
+
+    The short answer for an interview:
+    "Null safety catches errors at compile time, conciseness reduces boilerplate, coroutines make async cleaner,
+    and extension functions make code more readable. Kotlin is designed to be pragmatic and productive without sacrificing safety."
+____________________________________________________________________________________________________
+
+7.  What is an ANR - what causes it and how do you detect and prevent
+
+    ANR - DETECTION AND PREVENTION
+    ================================
+
+    What is ANR?
+    - App Not Responding. Triggered when the main thread (Looper) is blocked
+      and cannot process messages within the timeout period.
+
+    ANR Timeout thresholds:
+    - Activity / UI blocking main thread -> 5 seconds
+    - Broadcast Receiver (onReceive) -> 10 seconds
+    - Service (onCreate / onStartCommand) -> 20 seconds
+
+    Common causes:
+    - Heavy work on main thread (network, database, file I/O).
+    - SharedPreferences commit() on main thread (use apply() instead — runs in background).
+    - Tightly coupled references holding up the lifecycle.
+    - Slow service or broadcast receiver doing too much work.
+
+    Detection:
+    1. Logcat -> check main thread stack trace to see exactly where ANR occurs.
+    2. ANR traces file -> stored at data/anr/traces.txt on device.
+    3. Google Play Console -> for production ANRs reported from the field.
+    4. Android Profiler -> check memory usage; if memory keeps increasing and
+       GC cannot release it, that points to a leak that could cause ANR.
+    5. LeakCanary -> specifically for memory leak detection (not ANR directly),
+       but memory leaks can contribute to ANRs.
+
+    Prevention:
+    - Never run time-consuming work on the main thread.
+    - Use Coroutines with Dispatchers.IO for background work.
+    - Use WorkManager for long-running background tasks.
+    - Use SharedPreferences apply() instead of commit().
+    - Tie coroutines to lifecycle scopes (viewModelScope / lifecycleScope)
+      so they cancel automatically when Activity or ViewModel is destroyed.
+    - Avoid strong references to Activity or UI components in background work.
+      Use weak references or let the scope handle cancellation.
+
+    One-liner: ANR happens when the main thread is blocked beyond the timeout.
+    Detect via Logcat, traces file, or Play Console. Prevent by moving all
+    heavy work off the main thread using coroutines with the right dispatcher and scope.
+____________________________________________________________________________________________________
+
+8.  if LazyColumn has list of 3000 items it may lag or choppy how do you detect it has lag and choppy
+    is loading 3000 items is correct approach ? how do you handle thousands of records? it must be smooth.
+
+    LAZY COLUMN PERFORMANCE - HANDLING THOUSANDS OF ITEMS
+    ======================================================
+
+    Problem:
+    - Loading 3000 items at once in LazyColumn causes lag and choppy scrolling.
+    - Even though LazyColumn only renders visible items, it still measures/layouts
+      all 3000 items to know their positions — expensive.
+    - Holding 3000 item objects in memory is wasteful.
+
+    Solution: Pagination
+    - Load data in chunks: 20-30 items per page.
+    - Trigger next page load when user scrolls near the end.
+    - Keep only 50-60 items in memory at a time, not 3000.
+    - Query database with LIMIT and OFFSET: LIMIT 20 OFFSET 0, then LIMIT 20 OFFSET 20, etc.
+
+    Implementation:
+    - Use rememberLazyListState() to track scroll position.
+    - Detect when user reaches end of list, trigger pagination callback.
+    - Fetch next 20-30 items from DB, append to existing list.
+    - Never recompose entire list; append new items only.
+
+    Prevention of unnecessary recomposition:
+    - Use key() in LazyColumn item lambda to prevent recomposition on scroll.
+    - Use remember() to cache expensive computations per item.
+    - Each item should NOT recompose when scrolling past it.
+    - If recomposition happens on every scroll, all items are replaced, causing
+      memory thrashing and lag.
+
+    Avoid main thread blocking:
+    - Database queries must happen in background (Dispatchers.IO, not Main).
+    - Image loading must use caching libraries (Coil, Glide).
+    - Heavy computations in item composables must be offloaded or memoized.
+
+    Diagnosis if still laggy:
+    1. Android Profiler -> Frames section:
+       - Target: each frame < 16ms (60 FPS).
+       - Green = smooth, Yellow = borderline, Red = dropped frames (lag).
+
+    2. CPU Profiler:
+       - Shows which function is eating CPU time.
+       - Look for heavy item composables, unoptimized queries, image loading.
+
+    3. Memory Profiler:
+       - Check if memory spikes during scroll.
+       - If memory keeps growing, you're leaking references or holding too many items.
+
+    4. Layout Inspector:
+       - Check if items are recomposing unnecessarily.
+       - Verify key() and remember() are working.
+
+    One-liner: Pagination + LazyColumn with proper key() and remember() + background
+    queries/image loading + frame profiling for diagnosis = smooth scrolling at any scale.
+
+____________________________________________________________________________________________________
+9. LIVEDATA vs FLOW
+    ================
+
+    LiveData:
+    - Designed for simple ViewModel-to-UI value bridging.
+    - Holds a single value, notifies observers when it changes.
+    - Lifecycle-aware OUT OF THE BOX — automatically stops emitting when
+      lifecycle is inactive (Activity destroyed, Fragment detached).
+    - No stream operators (filter, map, combine, debounce).
+    - Android-specific, tied to Activity/Fragment lifecycle.
+    - Best for: simple UI state that needs lifecycle safety.
+
+    Flow:
+    - Designed for reactive streaming patterns.
+    - Models continuous data as a stream with powerful operators.
+    - Built-in operators: filter, map, debounce, combine, repeatOnLifecycle, delay.
+    - NOT lifecycle-aware by default — must wrap with collectAsStateWithLifecycle()
+      or lifecycleScope.launch to prevent crashes/leaks.
+    - Pure Kotlin, works in any layer (domain, data, presentation).
+    - Best for: reactive data streams, polling, real-time updates, complex transformations.
+
+    Key differences:
+    - LiveData is automatic lifecycle safety; Flow requires manual wrapping.
+    - LiveData is simple holder; Flow is streaming engine.
+    - LiveData can't elegantly handle polling/debouncing; Flow handles it idiomatically.
+    - LiveData is Android-only; Flow is Kotlin-pure.
+
+    Reactive programming:
+    - LiveData can do reactive patterns (polling, repeated calls) but requires
+      complex manual setup (coroutines, handlers, timing outside its design).
+    - Flow does reactive patterns cleanly because it's designed for them.
+
+    Google's recommendation:
+    - Use Flow + StateFlow for modern reactive Android architecture.
+    - Use LiveData only when you need simple, automatic lifecycle-aware value holding.
+
+    One-liner: LiveData is a lifecycle-aware value holder for simple cases.
+    Flow is a reactive stream engine that requires manual lifecycle wrapping but excels at
+    streaming patterns, operators, and reactive architecture.
+____________________________________________________________________________________________________
+
+10. RECOMPOSITION IN JETPACK COMPOSE
+    ==================================
+
+    What is recomposition?
+    - Recomposition is when Compose re-executes a composable function to rebuild UI.
+    - It is NATURAL behavior — happens when state changes.
+    - Problem: unnecessary recomposition wastes CPU and memory, causing lag.
+
+    How Compose is smart (smart recomposition):
+    - Compose does NOT recompose all children when one state changes.
+    - It only recomposes composables that DIRECTLY USE the changed state.
+    - BUT if parent holds state and passes it to all children, all children recompose.
+    - Solution: keep state as close as possible to the composable that needs it.
+
+    Three pillars to handle recomposition:
+
+    1. remember
+       - Caches a value inside a composable so it survives recomposition.
+       - Does NOT prevent recomposition — the composable still recomposes.
+       - But the expensive calculation inside remember is SKIPPED and reused.
+       - Without remember: every variable is recreated from scratch on every recomposition.
+       - With remember: cached value is reused, expensive work is skipped.
+       - Example:
+         val expensiveValue = remember { calculateExpensiveValue() }
+
+    2. State Hoisting
+       - A design pattern: move state UP to the parent composable.
+       - Child becomes stateless — just receives values and emits events upward.
+       - Why: so only composables that actually need the state recompose.
+         Siblings that don't use the state are untouched.
+       - remember is the TOOL; state hoisting is the PATTERN of where you put it.
+       - Example:
+         Parent owns: var count by remember { mutableStateOf(0) }
+         Child receives: count: Int, onIncrement: () -> Unit
+
+    3. key() in LazyColumn
+       - Tells Compose exactly which item maps to which composable during scroll.
+       - Without key: Compose loses track during scroll, recomposes all visible items,
+         causes checkbox state to reset, causes unnecessary recompositions.
+       - With key: only new or changed items recompose. Existing items are reused.
+       - Example:
+         items(movieList, key = { movie -> movie.id }) { movie ->
+           MovieItem(movie)
+         }
+
+    Bonus: @Immutable and @Stable annotations
+       - Tell Compose your data class won't change unexpectedly.
+       - Compose skips recomposition when receiving the same stable object.
+       - Use @Immutable for pure value objects (all val, no mutable internals).
+       - Use @Stable for logically immutable classes with complex internals.
+
+    Common causes of unnecessary recomposition:
+    - State held too high up, passed to all children unnecessarily.
+    - Missing key() in LazyColumn items.
+    - Expensive calculations not wrapped in remember.
+    - Mutable objects inside data classes confusing Compose.
+
+    One-liner: Recomposition is natural — state changes trigger UI rebuild.
+    Control it with remember (cache expensive work), state hoisting (keep state
+    at the right level), and key() in lists (preserve item identity during scroll).

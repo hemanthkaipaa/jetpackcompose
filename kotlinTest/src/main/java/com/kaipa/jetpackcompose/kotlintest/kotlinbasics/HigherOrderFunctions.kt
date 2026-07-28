@@ -35,6 +35,8 @@ fun main(){
     _HoReduce()
     _HoFold()
     _HoForEach()
+    _HoFlatten()
+    _HoFlatMap()
 }
 // Function as a parameter
 
@@ -155,7 +157,26 @@ fun _HoForEach(){
 // flatmap
 
 fun _HoFlatMap(){
+    data class User(val name: String, val roles: List<String>)
 
+    val users = listOf(
+        User("Hemanth", listOf("admin", "dev")),
+        User("Ravi", listOf("dev"))
+    )
+
+    users.map { it.roles }       // [[admin, dev], [dev]]      ← nested
+    users.flatMap { it.roles }   // [admin, dev, dev]          ← flat
+    println(users)
 }
+
+// flatten
+fun _HoFlatten(){
+    val nested = listOf(listOf(1, 2), listOf(3, 4), listOf(5))
+    nested.flatten()  // [1, 2, 3, 4, 5]
+    println(nested)
+}
+
+
+
 
 

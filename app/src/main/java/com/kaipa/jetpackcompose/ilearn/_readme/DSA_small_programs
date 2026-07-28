@@ -1,0 +1,23 @@
+Strings
+
+Reverse a string (two-pointer, CharArray)
+Palindrome (two-pointer, early exit)
+First non-repeating character (HashMap count + second pass)
+Find duplicates (HashMap count)
+Anagram check (count up / count down)
+Reverse words in a sentence
+Character frequency (the counts[c] = (counts[c] ?: 0) + 1 pattern)
+Sliding window — longest substring without repeats
+
+Arrays
+
+Second largest (bubble sort version + O(n) single pass)
+Kth largest (min-heap, PriorityQueue, O(n log k))
+Two-sum (HashMap value→index)
+Bubble sort / selection sort
+
+Numbers
+
+FizzBuzz (the when {} ordering trap)
+Check prime (√n bound, i * i <= n)
+Fibonacci / factorial (iterative)

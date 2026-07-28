@@ -1,7 +1,6 @@
 package com.kaipa.jetpackcompose.ilearn.cricbuzz
 
 import android.os.Bundle
-import android.os.PersistableBundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,25 +9,33 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.kaipa.jetpackcompose.ilearn.cricbuzz.navigation.CricbuzzNavGraph
-import com.kaipa.jetpackcompose.ilearn.cricbuzz.presentation.livematches.MatchesScreen
+import com.kaipa.jetpackcompose.ilearn.cricbuzz.domain.MatchRepository
+import com.kaipa.jetpackcompose.ilearn.cricbuzz.presentation.HomePager
 import dagger.hilt.android.AndroidEntryPoint
+import jakarta.inject.Inject
 
 @AndroidEntryPoint
 class CricbuzzActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var repository: MatchRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {                              // or your app's ILearnTheme { }
+            MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    CricbuzzNavGraph()
+                    HomePager(repository)
                 }
             }
         }
     }
+
+
+
     @Preview
     @Composable
     fun DefaultPreview() {
-        CricbuzzNavGraph()
+        HomePager(repository)
     }
 }

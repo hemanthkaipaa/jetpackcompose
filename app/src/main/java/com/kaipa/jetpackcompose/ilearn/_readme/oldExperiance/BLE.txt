@@ -1,0 +1,20 @@
+we have a bluetooth hardware devices stick to wall which emit bluetooth signals and
+these hardware devices will be emitting signals continuously and this hardware's RSI, tx power,UUID,intervals and
+other configuration settings can be configured.
+
+so from mobile device how do you access these signals using BLE what classes or bluetooth service did you use.
+
+------------------------------------------------------------------------------------------------------------
+
+Your wall beacons are BLE advertisers — they broadcast on the three advertising channels (37/38/39) at a fixed interval, connectionless.
+Your phone never pairs or connects; it just listens. That's the key architectural point
+
+Class	                        Role
+BluetoothManager	            System service handle — getSystemService(BLUETOOTH_SERVICE)
+BluetoothAdapter	            The local radio; check isEnabled
+BluetoothLeScanner	            adapter.bluetoothLeScanner — the scan entry point
+ScanFilter	                    Filter by service UUID / manufacturer data so you only see your beacons
+ScanSettings	                Scan mode, callback type, report delay
+ScanCallback	                Delivers ScanResult on each advertisement
+ScanResult	                    Wraps device, RSSI, timestamp, ScanRecord
+ScanRecord	                    Raw advertisement payload — manufacturer data, tx power, service data

@@ -1,6 +1,3 @@
-import org.gradle.internal.impldep.org.jsoup.nodes.Entities
-import org.gradle.kotlin.dsl.implementation
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,9 +8,7 @@ plugins {
 
 android {
     namespace = "com.kaipa.jetpackcompose.ilearn"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kaipa.jetpackcompose.ilearn"
@@ -56,8 +51,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.material:material-icons-extended-android:1.7.8")
 
     // Jetpack Compose Integration
@@ -72,7 +65,6 @@ dependencies {
 
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
-
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

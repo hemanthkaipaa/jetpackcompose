@@ -1,0 +1,140 @@
+INLINE, NOINLINE, CROSSINLINE, AND REIFIED
+=============================================
+
+Why inline, noinline, crossinline, reified exist:
+- By default, higher-order functions (functions with lambda parameters) create
+  lambda objects at runtime, wasting memory and heap allocation.
+- inline keyword tells compiler to copy function code to call site, avoiding object creation.
+- BUT inlining copies code to every call site, making APK larger.
+- So Kotlin doesn't inline by default — developer chooses based on trade-off:
+  * Inline = smaller runtime memory, larger APK.
+  * No inline = larger runtime memory, smaller APK.
+- Best practice: inline small, frequently-called functions (map, filter, forEach).
+  Skip inline for large functions (bytecode bloat not worth it).
+
+---
+
+INLINE, NOINLINE, CROSSINLINE - SINGLE EXAMPLE
+================================================
+
+```kotlin
+// Function with inline keyword + multiple lambda parameters
+inline fun processData(
+    data: List<Int>,
+    inlinedAction: (Int) -> Unit,           // Will be inlined
+    noinline storedAction: (Int) -> String  // Will NOT be inlined
+) {
+    // Use inlinedAction directly — code copied to call site
+    data.forEach { item ->
+        inlinedAction(item)
+    }
+
+    // Use storedAction in nested scope — marked noinline for safety
+    thread {
+        data.forEach { item ->
+            val result = storedAction(item)
+            println(result)
+        }
+    }
+}
+
+// Usage
+processData(
+    listOf(1, 2, 3),
+    inlinedAction = { num -> println("Processing: $num") },  // Inlined
+    storedAction = { num -> "Result: $num" }                  // Not inlined, object created
+)
+```
+
+**Explanation:**
+- `inlinedAction` is inlined → code copied to call site, no object.
+- `storedAction` is `noinline` → stays as lambda object, can be stored in variable or passed to thread.
+- If `storedAction` was NOT marked `noinline`, compiler would reject `thread { }` call because inlining doesn't work in nested scopes.
+
+---
+
+CROSSINLINE - SEPARATE EXAMPLE
+===============================
+
+```kotlin
+inline fun runAsync(crossinline onSuccess: (String) -> Unit) {
+    thread {  // Nested scope
+        onSuccess("Data loaded")  // crossinline allows calling lambda here
+    }
+}
+
+// Usage
+runAsync(onSuccess = { result ->
+    println("Success: $result")
+})
+```
+
+**Explanation:**
+- `onSuccess` is marked `crossinline` because it's called inside `thread { }` (nested scope).
+- Without `crossinline`, compiler would reject this — "can't inline lambda in nested scope."
+- `crossinline` says: "This lambda is called from a nested scope, but it's safe to inline."
+- Result: no lambda object created, code is inlined, even though it's called from nested scope.
+
+---
+
+REIFIED - SEPARATE EXAMPLE
+===========================
+
+```kotlin
+// WITHOUT reified — doesn't work
+fun <T> fromJson(json: String): T {
+    // val type = T::class  // ERROR! T is erased at runtime
+    return null as T
+}
+
+// WITH reified — works
+inline fun <reified T> fromJson(json: String): T {
+    val gson = Gson()
+    return gson.fromJson(json, T::class.java)  // T::class accessible at runtime!
+}
+
+// Usage
+data class User(val name: String)
+
+val user = fromJson<User>("""{"name": "John"}""")
+// reified preserves User type at runtime, gson can use it
+```
+
+**Explanation:**
+- Without `reified`, generic type `T` is erased at compile time, you can't access `T::class.java`.
+- `inline` + `reified` preserves the type information at runtime.
+- `inline` copies code to call site, compiler knows `T = User` at that point.
+- `reified` keyword lets you access `T::class`, `T::class.java`, etc.
+
+---
+
+KEY POINTS
+==========
+
+inline:
+- Copies function code to call site.
+- No lambda object created at runtime.
+- Increases APK size (bytecode duplication).
+- Use for small, frequently-called functions.
+
+noinline:
+- Mark a lambda parameter in an inline function as "don't inline this one."
+- This parameter stays as a lambda object.
+- Used when you need to store the lambda, pass it around, or use it in nested scopes.
+
+crossinline:
+- Mark a lambda parameter in an inline function as "inline this, but it's called from nested scope."
+- Tells compiler: "This is safe, don't reject it."
+- Without crossinline, compiler rejects inline lambda calls in nested scopes (thread, launch, etc.).
+
+reified:
+- ONLY works with inline functions.
+- Preserves generic type information at runtime (prevents type erasure).
+- Allows you to access T::class, T::class.java in the function body.
+- Essential for reflection-based code (JSON parsing, type checking, etc.).
+
+One-liner for each:
+- inline = copy code, save memory, grow APK.
+- noinline = don't inline this parameter.
+- crossinline = inline this, but it's in nested scope (safe).
+- reified = preserve generic type at runtime (inline + generics).

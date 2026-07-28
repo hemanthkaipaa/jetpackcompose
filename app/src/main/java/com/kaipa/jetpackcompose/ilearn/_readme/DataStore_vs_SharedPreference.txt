@@ -1,0 +1,54 @@
+SharedPreferences vs DataStore (Revision Note)
+
+
+Preferences DataStore — key-value, same mental model as SharedPreferences:
+
+kotlin
+val USER_NAME = stringPreferencesKey("user_name")
+
+// Write
+context.dataStore.edit { prefs ->
+    prefs[USER_NAME] = "Hemanth"
+}
+
+// Read
+val nameFlow: Flow<String> = context.dataStore.data
+    .map { prefs -> prefs[USER_NAME] ?: "" }
+
+Proto DataStore — typed schema via protocol buffers. Compile-time safety, but you define a .proto file. More setup, stronger guarantees.
+
+The Flow angle
+
+Reads are a Flow, so changes propagate reactively — no listener registration or manual refresh:
+
+kotlin
+class SettingsRepository(private val dataStore: DataStore<Preferences>) {
+    val isDarkMode: Flow<Boolean> = dataStore.data
+        .map { it[DARK_MODE] ?: false }
+}
+
+Plugs straight into stateIn and the ViewModel StateFlow pattern.
+
+Important correction
+
+SharedPreferences is NOT formally deprecated. No @Deprecated annotation, still ships, still works. Google recommends DataStore for new code, but existing SharedPreferences code isn't broken.
+
+Say it that way in an interview — "not deprecated, but DataStore is the recommended replacement." That distinction signals you know the API rather than repeating a headline.
+
+Still fine to use SharedPreferences when: a couple of simple flags, no reactive requirement, legacy codebase where migration isn't worth the effort.
+
+Migration
+kotlin
+val dataStore = preferencesDataStore(
+    name = "settings",
+    produceMigrations = { context ->
+        listOf(SharedPreferencesMigration(context, "old_prefs_name"))
+    }
+)
+
+Runs once, copies everything across. The fact that it's built in tells you Google expects people to move.
+
+One-liner
+
+SharedPreferences is synchronous, untyped, and silent on errors.
+DataStore is Flow-based, transactional, type-safe, and never blocks the main thread.
